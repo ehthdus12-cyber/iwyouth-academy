@@ -87,7 +87,6 @@
             const [formData, setFormData] = useState({ name: '', phone: '', birth: '', discount: 'none', course: '', privacyAgree: false });
             const [searchInfo, setSearchInfo] = useState({ name: '', phone: '', birth: '' });
             const [submittedData, setSubmittedData] = useState(null);
-            const [modal, setModal] = useState(null);
             
             // 입금 확인 모달용 상태
             const [paymentEditId, setPaymentEditId] = useState(null);
@@ -128,11 +127,21 @@
             const formatPhone = (v) => v.replace(/[^0-9]/g, "").replace(/^(\d{2,3})(\d{3,4})(\d{4})$/, `$1-$2-$3`);
             const formatBirth = (v) => v.replace(/[^0-9]/g, "").replace(/^(\d{4})(\d{2})(\d{2})$/, `$1-$2-$3`);
             
-            // 날짜 표시 포맷터
+            // [업데이트] 날짜 및 시간 표시 포맷터 (초 단위까지 포함)
             const formatDisplayDate = (dateStr) => {
                 if (!dateStr) return '미정';
                 const d = new Date(dateStr);
-                return `${d.getMonth() + 1}월 ${d.getDate()}일 ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+                const month = d.getMonth() + 1;
+                const date = d.getDate();
+                const hours = d.getHours().toString().padStart(2, '0');
+                const minutes = d.getMinutes().toString().padStart(2, '0');
+                return `${month}월 ${date}일 ${hours}시 ${minutes}분`;
+            };
+
+            const formatAdminFullDate = (dateStr) => {
+                if (!dateStr) return '-';
+                const d = new Date(dateStr);
+                return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
             };
 
             const getAgeType = (birth) => {
@@ -338,8 +347,8 @@
                     <nav className="bg-white border-b px-6 py-4 flex justify-between items-center sticky top-0 z-40 shadow-sm">
                         <h1 className="text-xl title-black text-blue-600 cursor-pointer" onClick={() => setView('form')}>강남일원독서실</h1>
                         <div className="flex gap-2">
-                            <button onClick={() => setView('search')} className="text-xs font-bold text-gray-500 bg-gray-50 px-3 py-2 rounded-xl border">신청조회</button>
-                            <button onClick={() => setView('admin_auth')} className="text-xs font-bold bg-blue-600 text-white px-3 py-2 rounded-xl transition-all hover:bg-blue-700">관리자</button>
+                            <button onClick={() => setView('search')} className="text-xs font-bold text-gray-500 bg-gray-50 px-3 py-2 rounded-xl border font-bold">신청조회</button>
+                            <button onClick={() => setView('admin_auth')} className="text-xs font-bold bg-blue-600 text-white px-3 py-2 rounded-xl transition-all hover:bg-blue-700 font-bold">관리자</button>
                         </div>
                     </nav>
 
@@ -351,25 +360,25 @@
                                     <p className="mt-1 opacity-90 text-sm">아카데미 수강신청 시스템</p>
                                 </div>
                                 <form onSubmit={handleApply} className="p-6 md:p-8 space-y-6">
-                                    {/* 접수 일정 안내 섹션 */}
-                                    <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100 space-y-3">
-                                        <h4 className="text-xs font-black text-blue-600 uppercase flex items-center gap-2"><i className="fa-solid fa-clock"></i> 수강신청 접수 일정</h4>
-                                        <div className="grid grid-cols-1 gap-2">
-                                            <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-blue-50 shadow-sm">
-                                                <span className="text-xs font-bold text-gray-500">기존 수강생</span>
-                                                <span className="text-xs font-black text-gray-800">
-                                                    {settings.existingStart ? `${formatDisplayDate(settings.existingStart)} ~ ${formatDisplayDate(settings.existingEnd)}` : '테스트 모드 (상시접수)'}
+                                    {/* [업데이트] 접수 일정 안내 섹션 */}
+                                    <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100 space-y-4">
+                                        <h4 className="text-[11px] font-black text-blue-600 uppercase flex items-center gap-2 tracking-widest"><i className="fa-solid fa-clock"></i> 수강신청 접수 일정 안내</h4>
+                                        <div className="space-y-3 font-bold">
+                                            <div className="flex flex-col gap-1.5 p-4 bg-white rounded-2xl border border-blue-50 shadow-sm">
+                                                <span className="text-[10px] text-gray-400">기존 수강생 우선접수</span>
+                                                <span className="text-xs text-gray-800 leading-tight">
+                                                    {settings.existingStart ? `${formatDisplayDate(settings.existingStart)} ~ ${formatDisplayDate(settings.existingEnd)}` : '테스트 모드 (상시접수 가능)'}
                                                 </span>
                                             </div>
-                                            <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-blue-50 shadow-sm">
-                                                <span className="text-xs font-bold text-gray-500">신규 수강생</span>
-                                                <span className="text-xs font-black text-gray-800">
-                                                    {settings.newStart ? `${formatDisplayDate(settings.newStart)} ~ ${formatDisplayDate(settings.newEnd)}` : '테스트 모드 (상시접수)'}
+                                            <div className="flex flex-col gap-1.5 p-4 bg-white rounded-2xl border border-blue-50 shadow-sm">
+                                                <span className="text-[10px] text-gray-400">신규 수강생 일반접수</span>
+                                                <span className="text-xs text-gray-800 leading-tight">
+                                                    {settings.newStart ? `${formatDisplayDate(settings.newStart)} ~ ${formatDisplayDate(settings.newEnd)}` : '테스트 모드 (상시접수 가능)'}
                                                 </span>
                                             </div>
                                         </div>
                                         {(!settings.existingStart && !settings.newStart) && (
-                                            <p className="text-[10px] text-blue-400 font-bold text-center italic">* 현재 일정이 설정되지 않아 테스트 접수가 가능합니다.</p>
+                                            <p className="text-[10px] text-blue-400 font-bold text-center italic tracking-tight">* 현재 접수 일정이 설정되지 않아 테스트 모드로 운영 중입니다.</p>
                                         )}
                                     </div>
 
@@ -440,7 +449,7 @@
                                     ))}
                                 </div>
                                 {adminTab === 'apps' && (
-                                    <div className="space-y-4">
+                                    <div className="space-y-4 font-bold">
                                         <div className="grid grid-cols-2 gap-3">
                                             <div className="bg-white p-5 rounded-3xl border shadow-sm text-center">
                                                 <p className="text-[10px] text-gray-400 font-bold mb-1 uppercase tracking-tighter">Total Apps</p>
@@ -451,31 +460,32 @@
                                                 <p className="text-2xl font-black text-blue-600">{stats.revenue.toLocaleString()}원</p>
                                             </div>
                                         </div>
-                                        <div className="bg-white p-5 rounded-3xl border shadow-sm space-y-4 text-xs font-bold">
+                                        <div className="bg-white p-5 rounded-3xl border shadow-sm space-y-4 text-xs">
                                             <div className="grid grid-cols-2 gap-3">
                                                 <div>
                                                     <p className="mb-1 text-gray-400">모집월 필터</p>
-                                                    <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl" />
+                                                    <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl font-bold" />
                                                 </div>
                                                 <div>
                                                     <p className="mb-1 text-gray-400">검색 (이름/번호)</p>
-                                                    <input type="text" placeholder="검색어 입력" value={filterName} onChange={e => setFilterName(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl" />
+                                                    <input type="text" placeholder="검색어 입력" value={filterName} onChange={e => setFilterName(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl font-bold" />
                                                 </div>
                                             </div>
                                             <div className="flex gap-4 items-center">
-                                                <select value={adminStatusFilter} onChange={e => setAdminStatusFilter(e.target.value)} className="flex-1 p-3 bg-gray-50 border rounded-xl">
+                                                <select value={adminStatusFilter} onChange={e => setAdminStatusFilter(e.target.value)} className="flex-1 p-3 bg-gray-50 border rounded-xl font-bold">
                                                     <option value="all">모든 상태</option>
                                                     <option value="waiting">입금대기</option>
                                                     <option value="paid">입금완료</option>
                                                     <option value="waiting_list">대기자</option>
                                                     <option value="cancelled">취소됨</option>
                                                 </select>
-                                                <label className="flex items-center gap-2 cursor-pointer text-blue-600">
+                                                <label className="flex items-center gap-2 cursor-pointer text-blue-600 font-bold">
                                                     <input type="checkbox" checked={filterDiscountOnly} onChange={e => setFilterDiscountOnly(e.target.checked)} className="w-4 h-4" /> 감면자만
                                                 </label>
                                             </div>
                                         </div>
-                                        <div className="space-y-4 font-bold">
+                                        
+                                        <div className="space-y-4">
                                             {filteredApplications.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).map(app => (
                                                 <div key={app.id} className={`bg-white border p-6 rounded-3xl relative shadow-sm transition-all ${app.status === 'cancelled' ? 'opacity-40 grayscale' : ''}`}>
                                                     <div className={`absolute top-0 right-0 px-4 py-1.5 text-[9px] font-black rounded-bl-2xl ${
@@ -483,11 +493,12 @@
                                                         app.status === 'waiting_list' ? 'bg-orange-500 text-white' : 
                                                         app.status === 'cancelled' ? 'bg-gray-400 text-white' : 'bg-blue-500 text-white'
                                                     }`}>
-                                                        {app.status === 'paid' ? '완료' : app.status === 'waiting_list' ? '대기자' : app.status === 'cancelled' ? '취소됨' : '대기'}
+                                                        {app.status === 'paid' ? '입금완료' : app.status === 'waiting_list' ? '대기자' : app.status === 'cancelled' ? '취소됨' : '입금대기'}
                                                     </div>
                                                     <h3 className="text-lg font-black">{app.name} <span className="text-xs text-gray-400 font-normal">({app.birth})</span></h3>
                                                     <p className="text-sm text-blue-600 mb-2">{app.courseName}</p>
                                                     <div className="text-[11px] bg-gray-50 p-4 rounded-2xl mb-4 space-y-1">
+                                                        <p className="flex justify-between text-gray-400 font-bold uppercase tracking-tight">신청 일시 <span className="text-gray-900 font-mono italic">{formatAdminFullDate(app.createdAt)}</span></p>
                                                         <p className="flex justify-between">연락처 <span>{app.phone}</span></p>
                                                         <p className="flex justify-between">결제금액 <span className="text-gray-900">{app.price.toLocaleString()}원</span></p>
                                                         {app.discountName !== '해당없음' && <p className="flex justify-between text-blue-500">감면 혜택 <span>{app.discountName}</span></p>}
@@ -499,11 +510,11 @@
                                                         <button onClick={() => changeStatus(app.id, app.status === 'waiting_list' ? 'waiting' : 'waiting_list')} className={`flex-1 py-2 rounded-xl text-xs font-bold border ${app.status === 'waiting_list' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>
                                                             {app.status === 'waiting_list' ? '대기 해제' : '대기 지정'}
                                                         </button>
-                                                        {app.status !== 'cancelled' && <button onClick={() => {if(confirm('취소하시겠습니까?')) changeStatus(app.id, 'cancelled')}} className="flex-1 py-2 border border-red-100 text-red-400 rounded-xl text-xs font-bold transition-all hover:bg-red-50">신청 취소</button>}
+                                                        {app.status !== 'cancelled' && <button onClick={() => {if(confirm('신청을 취소 처리하시겠습니까?')) changeStatus(app.id, 'cancelled')}} className="flex-1 py-2 border border-red-100 text-red-400 rounded-xl text-xs font-bold transition-all hover:bg-red-50">신청 취소</button>}
                                                     </div>
                                                 </div>
                                             ))}
-                                            {filteredApplications.length === 0 && <div className="p-20 text-center text-gray-300 font-bold bg-white rounded-3xl border border-dashed">조건에 맞는 내역이 없습니다.</div>}
+                                            {filteredApplications.length === 0 && <div className="p-20 text-center text-gray-300 font-bold bg-white rounded-3xl border border-dashed shadow-inner">조건에 맞는 내역이 없습니다.</div>}
                                         </div>
                                     </div>
                                 )}
@@ -515,20 +526,20 @@
                                                 <input type="text" placeholder="성함" value={individualStudent.name} onChange={e => setIndividualStudent({...individualStudent, name: e.target.value})} className="p-4 bg-gray-50 border rounded-2xl text-sm font-bold shadow-inner" />
                                                 <input type="tel" placeholder="번호" value={individualStudent.phone} onChange={e => setIndividualStudent({...individualStudent, phone: formatPhone(e.target.value)})} className="p-4 bg-gray-50 border rounded-2xl text-sm font-bold font-mono shadow-inner" />
                                             </div>
-                                            <button onClick={handleIndividualAdd} disabled={loading} className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl shadow-lg transition-all active:scale-95">신규 명단 등록</button>
+                                            <button onClick={handleIndividualAdd} disabled={loading} className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl shadow-lg transition-all active:scale-95 font-bold">신규 명단 등록</button>
                                         </div>
                                         <div className="bg-white rounded-3xl p-8 border shadow-sm space-y-4">
                                             <h3 className="text-lg font-bold text-gray-800 italic"><i className="fa-solid fa-file-excel mr-2"></i>일괄 등록 (엑셀)</h3>
                                             <textarea value={bulkInput} onChange={e => setBulkInput(e.target.value)} placeholder="성함 010-0000-0000 (줄바꿈으로 구분)" className="w-full h-32 p-4 bg-gray-50 border border-gray-100 rounded-2xl text-xs font-mono font-bold custom-scroll shadow-inner" />
-                                            <button onClick={handleBulkUpload} disabled={loading} className="w-full py-4 bg-gray-900 text-white font-bold rounded-2xl shadow-lg transition-all active:scale-95">대량 데이터 동기화</button>
+                                            <button onClick={handleBulkUpload} disabled={loading} className="w-full py-4 bg-gray-900 text-white font-bold rounded-2xl shadow-lg transition-all active:scale-95 font-bold">대량 데이터 동기화</button>
                                         </div>
                                         <div className="bg-white rounded-3xl p-6 border shadow-sm">
-                                            <h4 className="font-bold mb-4 px-2 flex justify-between"><span>전체 명단</span> <span className="text-blue-600 italic">{existingStudents.length}명</span></h4>
+                                            <h4 className="font-bold mb-4 px-2 flex justify-between font-bold"><span>전체 명단</span> <span className="text-blue-600 italic font-black">{existingStudents.length}명</span></h4>
                                             <div className="max-h-80 overflow-y-auto custom-scroll space-y-2 p-1">
                                                 {existingStudents.sort((a,b)=>a.name.localeCompare(b.name)).map(s => (
-                                                    <div key={s.id} className="flex justify-between p-4 bg-gray-50 rounded-2xl text-sm font-bold items-center hover:bg-white border border-transparent hover:border-blue-100 transition-all">
-                                                        <span>{s.name} <span className="text-gray-400 font-mono text-[11px] ml-2">{s.phone}</span></span>
-                                                        <button onClick={async () => { if(confirm(`${s.name}님을 삭제하시겠습니까?`)) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'existingStudents', s.id)); }} className="text-red-300 hover:text-red-500"><i className="fa-solid fa-trash-can"></i></button>
+                                                    <div key={s.id} className="flex justify-between p-4 bg-gray-50 rounded-2xl text-sm font-bold items-center hover:bg-white border border-transparent hover:border-blue-100 transition-all font-bold">
+                                                        <span>{s.name} <span className="text-gray-400 font-mono text-[11px] ml-2 font-normal">{s.phone}</span></span>
+                                                        <button onClick={async () => { if(confirm(`${s.name}님을 삭제하시겠습니까?`)) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'existingStudents', s.id)); }} className="text-red-300 hover:text-red-500 transition-all"><i className="fa-solid fa-trash-can"></i></button>
                                                     </div>
                                                 ))}
                                             </div>
@@ -539,7 +550,7 @@
                                     <div className="bg-white rounded-3xl p-8 border shadow-sm space-y-4 font-bold animate-in zoom-in">
                                         <h4 className="text-blue-600 italic uppercase tracking-widest text-sm mb-4">System Management</h4>
                                         <div className="space-y-6">
-                                            <div className="bg-gray-50 p-6 rounded-2xl border">
+                                            <div className="bg-gray-50 p-6 rounded-2xl border font-bold">
                                                 <label className="text-[11px] text-gray-400 mb-2 block font-black">모집 대상월 (수강신청 기준월)</label>
                                                 <input type="month" value={settings.targetMonth} onChange={e => setSettings({...settings, targetMonth: e.target.value})} className="w-full p-4 rounded-xl border font-black text-blue-600" />
                                             </div>
@@ -547,21 +558,21 @@
                                             {/* 기존 수강생 기간 설정 */}
                                             <div className="bg-green-50/30 p-6 rounded-2xl border border-green-100 space-y-4">
                                                 <label className="text-[11px] text-green-600 block font-black italic">기존 수강생 우선 접수 기간</label>
-                                                <input type="datetime-local" value={settings.existingStart} onChange={e => setSettings({...settings, existingStart: e.target.value})} className="w-full p-4 rounded-xl border text-sm" />
+                                                <input type="datetime-local" value={settings.existingStart} onChange={e => setSettings({...settings, existingStart: e.target.value})} className="w-full p-4 rounded-xl border text-sm font-bold" />
                                                 <div className="text-center opacity-30 text-xs font-black">TO</div>
-                                                <input type="datetime-local" value={settings.existingEnd} onChange={e => setSettings({...settings, existingEnd: e.target.value})} className="w-full p-4 rounded-xl border text-sm" />
+                                                <input type="datetime-local" value={settings.existingEnd} onChange={e => setSettings({...settings, existingEnd: e.target.value})} className="w-full p-4 rounded-xl border text-sm font-bold" />
                                             </div>
 
                                             {/* 신규 수강생 기간 설정 */}
                                             <div className="bg-blue-50/30 p-6 rounded-2xl border border-blue-100 space-y-4">
                                                 <label className="text-[11px] text-blue-400 block font-black italic">신규 수강생 일반 접수 기간</label>
-                                                <input type="datetime-local" value={settings.newStart} onChange={e => setSettings({...settings, newStart: e.target.value})} className="w-full p-4 rounded-xl border text-sm" />
+                                                <input type="datetime-local" value={settings.newStart} onChange={e => setSettings({...settings, newStart: e.target.value})} className="w-full p-4 rounded-xl border text-sm font-bold" />
                                                 <div className="text-center opacity-30 text-xs font-black">TO</div>
-                                                <input type="datetime-local" value={settings.newEnd} onChange={e => setSettings({...settings, newEnd: e.target.value})} className="w-full p-4 rounded-xl border text-sm" />
+                                                <input type="datetime-local" value={settings.newEnd} onChange={e => setSettings({...settings, newEnd: e.target.value})} className="w-full p-4 rounded-xl border text-sm font-bold" />
                                             </div>
-                                            <p className="text-[10px] text-gray-400 text-center font-bold italic">* 기간을 모두 비워두면 테스트 모드로 상시 접수가 가능합니다.</p>
+                                            <p className="text-[10px] text-gray-400 text-center font-bold italic tracking-tight">* 모든 일시를 비워두면 상시 접수 가능한 '테스트 모드'로 작동합니다.</p>
                                         </div>
-                                        <button onClick={saveSettings} className="w-full py-5 bg-blue-600 text-white rounded-3xl font-bold uppercase italic tracking-widest mt-8 shadow-xl transition-all active:scale-95">Save All Config</button>
+                                        <button onClick={saveSettings} className="w-full py-5 bg-blue-600 text-white rounded-3xl font-bold uppercase italic tracking-widest mt-8 shadow-xl transition-all active:scale-95 font-bold">Save All Config</button>
                                     </div>
                                 )}
                             </div>
@@ -571,14 +582,14 @@
                     {/* 신청 성공 화면 */}
                     {submittedData && view === 'success' && (
                          <div className="max-w-xl mx-auto p-4 w-full animate-in zoom-in">
-                            <div className="bg-white rounded-[3rem] p-12 text-center border shadow-2xl relative overflow-hidden">
+                            <div className="bg-white rounded-[3rem] p-12 text-center border shadow-2xl relative overflow-hidden font-bold">
                                 <div className={`absolute top-0 left-0 w-full h-3 ${submittedData.status === 'waiting_list' ? 'bg-orange-500' : 'bg-blue-600'}`}></div>
                                 <h2 className="text-3xl font-black text-gray-800 tracking-tight">
                                     {submittedData.status === 'waiting_list' ? '대기 접수 완료' : '신청 완료'}
                                 </h2>
                                 <p className="text-blue-600 font-bold mt-2 uppercase tracking-widest text-sm italic">{submittedData.courseName}</p>
-                                <div className="mt-8 p-8 bg-gray-50 rounded-[2.5rem] text-left border border-gray-100 font-bold shadow-inner">
-                                    <p className="flex justify-between text-xs text-gray-400 mb-4 uppercase">Amount Due <span className="text-xl text-blue-600 font-black">{submittedData.price.toLocaleString()}원</span></p>
+                                <div className="mt-8 p-8 bg-gray-50 rounded-[2.5rem] text-left border border-gray-100 shadow-inner">
+                                    <p className="flex justify-between text-xs text-gray-400 mb-4 uppercase font-bold">Amount Due <span className="text-xl text-blue-600 font-black">{submittedData.price.toLocaleString()}원</span></p>
                                     <div className="p-8 bg-blue-600 rounded-[2rem] text-white shadow-xl relative overflow-hidden">
                                         <p className="text-[10px] opacity-70 mb-3 uppercase font-black italic tracking-widest">Account Details</p>
                                         <p className="text-base font-mono font-bold leading-relaxed">우리은행 1005-204-639684<br/>예금주: 강남일원독서실</p>
@@ -588,30 +599,30 @@
                                         </div>
                                     </div>
                                 </div>
-                                <button onClick={() => setView('form')} className="w-full mt-10 py-5 bg-gray-100 font-bold rounded-3xl transition-all active:scale-95">홈으로 이동</button>
+                                <button onClick={() => setView('form')} className="w-full mt-10 py-5 bg-gray-100 font-bold rounded-3xl transition-all active:scale-95 font-bold">홈으로 이동</button>
                             </div>
                          </div>
                     )}
 
                     {/* 조회 입력 화면 */}
                     {view === 'search' && (
-                         <div className="max-w-sm mx-auto bg-white rounded-3xl p-10 border shadow-2xl animate-in fade-in">
+                         <div className="max-w-sm mx-auto bg-white rounded-3xl p-10 border shadow-2xl animate-in fade-in font-bold">
                             <h2 className="text-2xl font-black mb-10 text-center text-gray-800 italic uppercase tracking-tighter">My Application</h2>
                             <form onSubmit={(e) => { e.preventDefault(); setView('search_result'); }} className="space-y-4">
-                                <input type="text" placeholder="수강생 성함" required value={searchInfo.name} onChange={e => setSearchInfo({...searchInfo, name: e.target.value})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold shadow-inner" />
-                                <input type="tel" placeholder="연락처" required value={searchInfo.phone} onChange={e => setSearchInfo({...searchInfo, phone: formatPhone(e.target.value)})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-mono font-bold shadow-inner" />
-                                <input type="text" placeholder="생년월일 (1990-01-01)" required value={searchInfo.birth} onChange={e => setSearchInfo({...searchInfo, birth: formatBirth(e.target.value)})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-mono font-bold shadow-inner" />
-                                <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-3xl shadow-lg mt-4 transition-all active:scale-95">내역 조회하기</button>
+                                <input type="text" placeholder="수강생 성함" required value={searchInfo.name} onChange={e => setSearchInfo({...searchInfo, name: e.target.value})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold shadow-inner font-bold" />
+                                <input type="tel" placeholder="연락처" required value={searchInfo.phone} onChange={e => setSearchInfo({...searchInfo, phone: formatPhone(e.target.value)})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-mono font-bold shadow-inner font-bold" />
+                                <input type="text" placeholder="생년월일 (1990-01-01)" required value={searchInfo.birth} onChange={e => setSearchInfo({...searchInfo, birth: formatBirth(e.target.value)})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-mono font-bold shadow-inner font-bold" />
+                                <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-3xl shadow-lg mt-4 transition-all active:scale-95 font-bold">내역 조회하기</button>
                             </form>
                          </div>
                     )}
 
                     {/* 조회 결과 화면 */}
                     {view === 'search_result' && (
-                        <div className="space-y-6 animate-in fade-in">
+                        <div className="space-y-6 animate-in fade-in font-bold">
                             <h2 className="text-2xl font-black text-gray-800 px-1 italic text-center uppercase tracking-tighter">Search Results</h2>
                             {searchResults.length === 0 ? (
-                                <div className="bg-white p-20 rounded-3xl text-center border text-gray-300 font-black shadow-inner">신청 내역이 존재하지 않습니다.</div>
+                                <div className="bg-white p-20 rounded-3xl text-center border text-gray-300 font-black shadow-inner font-bold">신청 내역이 존재하지 않습니다.</div>
                             ) : (
                                 searchResults.map(app => (
                                     <div key={app.id} className="bg-white rounded-3xl shadow-md p-8 border relative overflow-hidden transition-all border-transparent hover:border-blue-100">
@@ -622,7 +633,7 @@
                                         }`}>
                                             {app.status === 'paid' ? '입금완료' : app.status === 'waiting_list' ? '대기자' : app.status === 'cancelled' ? '신청취소' : '입금대기'}
                                         </div>
-                                        <h3 className="text-xl font-black text-gray-900 mb-6">{app.courseName} <span className="text-xs text-gray-400 font-normal italic">({app.applyMonth})</span></h3>
+                                        <h3 className="text-xl font-black text-gray-900 mb-6">{app.courseName} <span className="text-xs text-gray-400 font-normal italic font-bold">({app.applyMonth})</span></h3>
                                         <div className="space-y-4 text-xs font-bold border-t pt-4 border-gray-100">
                                             <p className="flex justify-between text-gray-400">납부 예정 금액 <span className="text-gray-900 font-mono text-sm">{app.price.toLocaleString()}원</span></p>
                                             {app.status === 'paid' && app.paymentDate && (
@@ -633,37 +644,37 @@
                                             )}
                                         </div>
                                         {app.status === 'waiting' && (
-                                            <div className="mt-6 p-6 bg-blue-50 rounded-2xl border border-blue-100 shadow-inner">
+                                            <div className="mt-6 p-6 bg-blue-50 rounded-2xl border border-blue-100 shadow-inner font-bold">
                                                 <p className="text-[10px] text-blue-400 mb-2 font-black italic tracking-widest uppercase">Payment Info</p>
-                                                <p className="text-sm font-black text-blue-900 leading-relaxed font-mono">우리은행 1005-204-639684<br/>입금자: {app.name}{getShortCourseName(app.courseName)}</p>
+                                                <p className="text-sm font-black text-blue-900 leading-relaxed font-mono tracking-tighter">우리은행 1005-204-639684<br/>입금자: {app.name}{getShortCourseName(app.courseName)}</p>
                                             </div>
                                         )}
                                         {app.status !== 'cancelled' && (
-                                            <button onClick={async () => { if(confirm('신청을 취소하시겠습니까?')) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'applications', app.id), { status: 'cancelled' }); }} className="w-full mt-4 py-3 bg-gray-50 text-gray-400 text-[10px] font-bold rounded-xl border hover:text-red-500 transition-all uppercase italic">Request Cancellation</button>
+                                            <button onClick={async () => { if(confirm('신청을 취소하시겠습니까?')) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'applications', app.id), { status: 'cancelled' }); }} className="w-full mt-4 py-3 bg-gray-50 text-gray-400 text-[10px] font-bold rounded-xl border hover:text-red-500 transition-all uppercase italic tracking-widest font-bold">Request Cancellation</button>
                                         )}
                                     </div>
                                 ))
                             )}
-                            <button onClick={() => setView('form')} className="w-full py-4 text-gray-400 font-black text-xs hover:text-blue-500 transition-all uppercase tracking-widest italic">Return to Home</button>
+                            <button onClick={() => setView('form')} className="w-full py-4 text-gray-400 font-black text-xs hover:text-blue-500 transition-all uppercase tracking-widest italic font-bold">Return to Home</button>
                         </div>
                     )}
 
                     {/* 공용 모달 (입금 확인 처리 전용) */}
                     {paymentEditId && (
-                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6 font-bold">
                             <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl border font-bold animate-in zoom-in">
                                 <h3 className="text-xl font-black mb-6 flex items-center gap-2"><i className="fa-solid fa-credit-card text-blue-500"></i>입금 처리 확인</h3>
                                 <form onSubmit={handlePaymentUpdate} className="space-y-4 text-left">
                                     <div>
                                         <label className="text-[10px] text-gray-400 mb-1 block">입금 날짜</label>
-                                        <input type="date" required value={paymentInfo.date} onChange={e => setPaymentInfo({...paymentInfo, date: e.target.value})} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none shadow-inner" />
+                                        <input type="date" required value={paymentInfo.date} onChange={e => setPaymentInfo({...paymentInfo, date: e.target.value})} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none shadow-inner font-bold" />
                                     </div>
                                     <div>
                                         <label className="text-[10px] text-gray-400 mb-1 block">실제 입금액</label>
-                                        <input type="number" required value={paymentInfo.amount} onChange={e => setPaymentInfo({...paymentInfo, amount: e.target.value})} className="w-full p-4 bg-gray-50 border rounded-2xl font-black text-xl outline-none shadow-inner" />
+                                        <input type="number" required value={paymentInfo.amount} onChange={e => setPaymentInfo({...paymentInfo, amount: e.target.value})} className="w-full p-4 bg-gray-50 border rounded-2xl font-black text-xl outline-none shadow-inner font-bold" />
                                     </div>
-                                    <button type="submit" className="w-full py-5 bg-blue-600 text-white font-bold rounded-2xl shadow-lg mt-4 transition-all active:scale-95">입금 승인 완료</button>
-                                    <button type="button" onClick={() => setPaymentEditId(null)} className="w-full py-2 text-gray-400 text-sm">닫기</button>
+                                    <button type="submit" className="w-full py-5 bg-blue-600 text-white font-bold rounded-2xl shadow-lg mt-4 transition-all active:scale-95 font-bold">입금 승인 완료</button>
+                                    <button type="button" onClick={() => setPaymentEditId(null)} className="w-full py-2 text-gray-400 text-sm font-bold">닫기</button>
                                 </form>
                             </div>
                         </div>
