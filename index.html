@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>강남일원독서실 아카데미</title>
+    <!-- CSS 및 폰트 설정 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f1f5f9;
+            word-break: keep-all;
+            letter-spacing: -0.03em;
+        }
+        .title-black { font-weight: 900; }
+        .card-shadow { box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05); }
+        input:focus, select:focus, textarea:focus { 
+            outline: none; 
+            border-color: #2563eb; 
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); 
+        }
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .transition-all { transition: all 0.2s ease; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- React 및 Firebase 라이브러리 임포트 -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, query, deleteDoc, getDocs, writeBatch, addDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // Firebase 설정 (환경 변수 우선 순위)
+        let firebaseConfig = {};
+        try {
+            if (typeof __firebase_config !== 'undefined') {
+                firebaseConfig = JSON.parse(__firebase_config);
+            }
+        } catch(e) { console.error("Firebase config load error", e); }
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        // 고유 앱 ID 설정 (문서 경로용)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : "gangnam-irwon-2026";
+
+        window.FB = { 
+            auth, db, appId, signInAnonymously, signInWithCustomToken, 
+            onAuthStateChanged, collection, doc, setDoc, onSnapshot, 
+            updateDoc, query, deleteDoc, getDocs, writeBatch, addDoc 
+        };
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [view, setView] = useState('form'); 
+            const [loading, setLoading] = useState(false);
+            
+            // 데이터 상태
+            const [applications, setApplications] = useState([]);
+            const [existingStudents, setExistingStudents] = useState([]);
+            const [settings, setSettings] = useState({
+                existingStart: '', existingEnd: '',
+                newStart: '', newEnd: '',
+                targetMonth: '2026-03' 
+            });
+
+            // 관리자 필터 상태
+            const [filterMonth, setFilterMonth] = useState('2026-03');
+            const [filterName, setFilterName] = useState('');
+            const [filterDiscountOnly, setFilterDiscountOnly] = useState(false);
+            const [adminStatusFilter, setAdminStatusFilter] = useState('all');
+
+            // 폼 데이터
+            const [formData, setFormData] = useState({ name: '', phone: '', birth: '', discount: 'none', course: '', privacyAgree: false });
+            const [searchInfo, setSearchInfo] = useState({ name: '', phone: '', birth: '' });
+            const [adminPass, setAdminPass] = useState('');
+            const [adminTab, setAdminTab] = useState('apps');
+            const [bulkInput, setBulkInput] = useState('');
+            const [individualStudent, setIndividualStudent] = useState({ name: '', phone: '' });
+            const [submittedData, setSubmittedData] = useState(null);
+            const [modal, setModal] = useState(null);
+            const [adminPaymentDates, setAdminPaymentDates] = useState({});
+
+            const fbAvailable = !!window.FB;
+
+            // [수정] 인증 처리 로직 강화 (RULE 3 준수)
+            useEffect(() => {
+                if (!fbAvailable) return;
+                const { auth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.FB;
+                
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (err) { 
+                        console.error("Auth initialization failed:", err); 
+                    }
+                };
+                
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+                    setUser(currentUser);
+                });
+                
+                return () => unsubscribe();
+            }, [fbAvailable]);
+
+            // [수정] 실시간 데이터 리스너 및 에러 핸들링 (MANDATORY RULE 준수)
+            useEffect(() => {
+                if (!fbAvailable || !user) return; // 유저가 인증될 때까지 대기
+                
+                const { db, appId, collection, onSnapshot } = window.FB;
+                
+                const onSnapshotError = (err) => {
+                    console.error("Firestore Snapshot Error:", err);
+                    if (err.code === 'permission-denied') {
+                        // 권한 오류 시 사용자에게 알림 (선택 사항)
+                    }
+                };
+
+                const unsubApps = onSnapshot(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'applications'),
+                    (s) => setApplications(s.docs.map(d => ({ id: d.id, ...d.data() }))),
+                    onSnapshotError
+                );
+                
+                const unsubStudents = onSnapshot(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'existingStudents'),
+                    (s) => setExistingStudents(s.docs.map(d => ({ id: d.id, ...d.data() }))),
+                    onSnapshotError
+                );
+                
+                const unsubSettings = onSnapshot(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'settings'),
+                    (s) => { if (!s.empty) setSettings(s.docs[0].data()); },
+                    onSnapshotError
+                );
+                
+                return () => { 
+                    unsubApps(); 
+                    unsubStudents(); 
+                    unsubSettings(); 
+                };
+            }, [user, fbAvailable]);
+
+            const formatPhone = (v) => v.replace(/[^0-9]/g, "").replace(/^(\d{2,3})(\d{3,4})(\d{4})$/, `$1-$2-$3`);
+            const formatBirth = (v) => v.replace(/[^0-9]/g, "").replace(/^(\d{4})(\d{2})(\d{2})$/, `$1-$2-$3`);
+            const isExisting = useMemo(() => existingStudents.some(s => s.phone === formData.phone), [existingStudents, formData.phone]);
+
+            const courses = useMemo(() => [
+                { id: 'a1', name: 'AI스마트폰활용 (성인)', alias: '스마트폰', capacity: 15, price: 40000, type: 'adult' },
+                { id: 'a2', name: '연필풍경스케치 (성인)', alias: '연필풍경', capacity: 15, price: 40000, type: 'adult' },
+                { id: 'a3', name: '보타니컬아트 (성인)', alias: '보타니컬', capacity: 15, price: 40000, type: 'adult' },
+                { id: 'y1', name: '창의미술 (초등 1~3학년)', alias: '창의미술', capacity: 15, price: 30000, type: 'youth' },
+                { id: 'y2_a', name: '창의논술A (초등 1~2학년)', alias: '논술A', capacity: 15, price: 30000, type: 'youth' },
+                { id: 'y2_b', name: '창의논술B (초등 3~4학년)', alias: '논술B', capacity: 15, price: 30000, type: 'youth' },
+                { id: 'y2_c', name: '창의논술C (초등 5~6학년)', alias: '논술C', capacity: 15, price: 30000, type: 'youth' },
+                { id: 'y2_d', name: '창의논술D (중등 1~3학년)', alias: '논술D', capacity: 15, price: 30000, type: 'youth' },
+                { id: 'y3', name: '이야기세계사 (초5~중2)', alias: '세계사', capacity: 15, price: 30000, type: 'youth' },
+                { id: 'y4', name: '이야기한국사 (초5~중2)', alias: '한국사', capacity: 15, price: 30000, type: 'youth' },
+                { id: 'y5', name: '입문리딩 (초등 1~6학년)', alias: '입문리딩', capacity: 12, price: 50000, type: 'youth' },
+                { id: 'y6', name: '초급리딩 (초등 1~6학년)', alias: '초급리딩', capacity: 12, price: 50000, type: 'youth' },
+                { id: 'y7', name: '중급리딩 (초등 1~6학년)', alias: '중급리딩', capacity: 12, price: 50000, type: 'youth' },
+            ], []);
+
+            const discounts = [
+                { id: 'none', name: '해당없음', rate: 0 },
+                { id: '30_multi', name: '두 자녀 이상 청소년(30%)', rate: 0.3 },
+                { id: '30_two', name: '1일 2개 강좌 수강(30%)', rate: 0.3 },
+                { id: '30_three', name: '1주 3개 강좌 수강(30%)', rate: 0.3 },
+                { id: '50_basic', name: '기초생활수급자(50%)', rate: 0.5 },
+                { id: '50_disable', name: '장애인(50%)', rate: 0.5 },
+                { id: '50_army', name: '병역명문가(50%)', rate: 0.5 },
+                { id: '50_facility', name: '사회복지시설 청소년(50%)', rate: 0.5 },
+                { id: '50_merit', name: '국가유공자(50%)', rate: 0.5 },
+            ];
+
+            const getAgeType = (birth) => {
+                if (!birth || birth.length < 4) return null;
+                const year = parseInt(birth.substring(0, 4));
+                return year <= 2007 ? 'adult' : 'youth';
+            };
+
+            const userAgeType = useMemo(() => getAgeType(formData.birth), [formData.birth]);
+            const availableCourses = useMemo(() => userAgeType ? courses.filter(c => c.type === userAgeType) : [], [userAgeType, courses]);
+            const currentSelectedCourse = courses.find(c => c.id === formData.course);
+            const currentSelectedDiscount = discounts.find(d => d.id === formData.discount);
+            
+            const calculatedPrice = useMemo(() => {
+                if (!currentSelectedCourse) return 0;
+                return currentSelectedCourse.price * (1 - (currentSelectedDiscount?.rate || 0));
+            }, [currentSelectedCourse, currentSelectedDiscount]);
+
+            const checkPeriodStatus = () => {
+                const now = new Date();
+                const exStart = settings.existingStart ? new Date(settings.existingStart) : null;
+                const exEnd = settings.existingEnd ? new Date(settings.existingEnd) : null;
+                const nStart = settings.newStart ? new Date(settings.newStart) : null;
+                const nEnd = settings.newEnd ? new Date(settings.newEnd) : null;
+                if (!exStart && !nStart) return { canApply: true };
+                if (isExisting) {
+                    if (exStart && exEnd && now >= exStart && now <= exEnd) return { canApply: true };
+                    if (nStart && nEnd && now >= nStart && now <= nEnd) return { canApply: true };
+                    return { canApply: false, msg: `접수 기간이 아닙니다.\n일정: ${exStart ? exStart.toLocaleString() : '미정'} ~ ${exEnd ? exEnd.toLocaleString() : '미정'}` };
+                } else {
+                    if (nStart && nEnd && now >= nStart && now <= nEnd) return { canApply: true };
+                    return { canApply: false, msg: `신규 수강생 신청 기간이 아닙니다.\n일정: ${nStart ? nStart.toLocaleString() : '미정'} ~ ${nEnd ? nEnd.toLocaleString() : '미정'}` };
+                }
+            };
+
+            const handleApply = async (e) => {
+                e.preventDefault();
+                if (!user || !fbAvailable) return;
+                const { db, appId, setDoc, doc } = window.FB;
+                if (!formData.privacyAgree) return;
+                
+                const period = checkPeriodStatus();
+                if (!period.canApply) {
+                    setModal({ title: '신청 기간 안내', message: period.msg });
+                    return;
+                }
+                
+                setLoading(true);
+                const activeCount = applications.filter(a => a.courseId === formData.course && a.applyMonth === settings.targetMonth && a.status !== 'cancelled').length;
+                const course = courses.find(c => c.id === formData.course);
+                const status = activeCount >= course.capacity ? 'waiting_list' : 'waiting';
+                
+                const payload = { 
+                    ...formData, 
+                    isExisting, 
+                    courseName: course.name, 
+                    courseId: course.id, 
+                    courseAlias: course.alias,
+                    status, 
+                    basePrice: course.price,
+                    discountAmount: course.price - calculatedPrice,
+                    price: calculatedPrice, 
+                    discountName: currentSelectedDiscount?.name || '해당없음',
+                    applyMonth: settings.targetMonth,
+                    createdAt: new Date().toISOString() 
+                };
+                
+                try {
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'applications', crypto.randomUUID()), payload);
+                    setSubmittedData(payload);
+                    setView('success');
+                } catch (err) { alert('오류가 발생했습니다.'); }
+                finally { setLoading(false); }
+            };
+
+            const changeStatus = async (id, newStatus, extraData = {}) => {
+                if (!user || !fbAvailable) return;
+                const { db, appId, updateDoc, doc } = window.FB;
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'applications', id), { status: newStatus, ...extraData });
+            };
+
+            const saveSettings = async () => {
+                if (!user || !fbAvailable) return;
+                const { db, appId, collection, getDocs, updateDoc, doc, addDoc } = window.FB;
+                setLoading(true);
+                const sRef = collection(db, 'artifacts', appId, 'public', 'data', 'settings');
+                const sSnap = await getDocs(sRef);
+                if (sSnap.empty) await addDoc(sRef, settings);
+                else await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', sSnap.docs[0].id), settings);
+                setModal({ title: '완료', message: '시스템 설정이 저장되었습니다.' });
+                setLoading(false);
+            };
+
+            const filteredApplications = useMemo(() => {
+                return applications.filter(app => {
+                    const matchMonth = filterMonth ? app.applyMonth === filterMonth : true;
+                    const matchName = filterName ? (app.name.includes(filterName) || app.phone.includes(filterName)) : true;
+                    const matchDiscount = filterDiscountOnly ? app.discount !== 'none' : true;
+                    const matchStatus = adminStatusFilter === 'all' ? true : app.status === adminStatusFilter;
+                    return matchMonth && matchName && matchDiscount && matchStatus;
+                });
+            }, [applications, filterMonth, filterName, filterDiscountOnly, adminStatusFilter]);
+
+            const stats = useMemo(() => {
+                const targets = applications.filter(a => a.applyMonth === filterMonth && a.status !== 'cancelled');
+                return {
+                    total: targets.length,
+                    paid: targets.filter(a => a.status === 'paid').length,
+                    revenue: targets.filter(a => a.status === 'paid').reduce((sum, item) => sum + item.price, 0)
+                };
+            }, [applications, filterMonth]);
+
+            const searchResults = useMemo(() => {
+                if (view !== 'search_result') return [];
+                return applications.filter(app => 
+                    app.name === searchInfo.name && 
+                    app.phone === searchInfo.phone && 
+                    app.birth === searchInfo.birth
+                );
+            }, [applications, searchInfo, view]);
+
+            const handleIndividualAdd = async () => {
+                if (!user || !fbAvailable) return;
+                const { db, appId, addDoc, collection } = window.FB;
+                if (!individualStudent.name || !individualStudent.phone) return;
+                
+                const formattedPhone = formatPhone(individualStudent.phone.trim());
+                if (existingStudents.some(s => s.phone === formattedPhone)) {
+                    setModal({ title: '알림', message: '이미 등록된 연락처입니다.' });
+                    return;
+                }
+                
+                setLoading(true);
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'existingStudents'), { 
+                        name: individualStudent.name.trim(), 
+                        phone: formattedPhone 
+                    });
+                    setIndividualStudent({ name: '', phone: '' });
+                    setModal({ title: '완료', message: '성공적으로 등록되었습니다.' });
+                } catch (err) { console.error(err); } finally { setLoading(false); }
+            };
+
+            const handleBulkUpload = async () => {
+                if (!user || !fbAvailable) return;
+                const { db, appId, writeBatch, collection, doc } = window.FB;
+                if (!bulkInput.trim()) return;
+
+                setLoading(true);
+                const batch = writeBatch(db);
+                let added = 0;
+                let skipped = 0;
+                
+                bulkInput.trim().split('\n').forEach(line => {
+                    const parts = line.split(/[\t, ]+/);
+                    if (parts.length >= 2) {
+                        const name = parts[0].trim();
+                        const phone = formatPhone(parts[1].trim());
+                        if (!existingStudents.some(s => s.phone === phone)) {
+                            batch.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'existingStudents')), { name, phone });
+                            added++;
+                        } else { skipped++; }
+                    }
+                });
+
+                try {
+                    await batch.commit();
+                    setBulkInput('');
+                    setModal({ title: '일괄 등록 완료', message: `${added}명이 등록되었고, 중복된 ${skipped}명은 제외되었습니다.` });
+                } catch (err) { console.error(err); } finally { setLoading(false); }
+            };
+
+            return (
+                <div className="max-w-xl mx-auto min-h-screen flex flex-col pb-20">
+                    <nav className="bg-white border-b px-6 py-4 flex justify-between items-center sticky top-0 z-40 shadow-sm">
+                        <h1 className="text-xl title-black text-blue-600 cursor-pointer" onClick={() => setView('form')}>강남일원독서실</h1>
+                        <div className="flex gap-2">
+                            <button onClick={() => setView('search')} className="text-xs font-bold text-gray-500 bg-gray-50 px-3 py-2 rounded-xl border transition-all hover:bg-gray-100 font-bold">신청조회</button>
+                            <button onClick={() => setView('admin_auth')} className="text-xs font-bold bg-blue-600 text-white px-3 py-2 rounded-xl transition-all hover:bg-blue-700 font-bold">관리자</button>
+                        </div>
+                    </nav>
+
+                    <div className="p-4 md:p-6 flex-1">
+                        {view === 'form' && (
+                            <div className="bg-white rounded-3xl overflow-hidden card-shadow border">
+                                <div className="bg-blue-600 p-8 text-white text-center font-bold">
+                                    <h2 className="text-2xl title-black tracking-tight">{settings.targetMonth.split('-')[0]}년 {parseInt(settings.targetMonth.split('-')[1])}월</h2>
+                                    <p className="mt-1 opacity-90 text-sm">아카데미 수강신청 시스템</p>
+                                </div>
+                                <form onSubmit={handleApply} className="p-6 md:p-8 space-y-6">
+                                    <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                                            <i className="fa-solid fa-calendar-check"></i>
+                                        </div>
+                                        <div>
+                                            <p className="text-[12px] text-amber-800 font-black">현재 모집월: {settings.targetMonth.split('-')[0]}년 {parseInt(settings.targetMonth.split('-')[1])}월 강좌</p>
+                                            <p className="text-[10px] text-amber-600 font-bold">기간 내 신청하지 않으면 접수가 불가합니다.</p>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-bold text-gray-700 flex items-center gap-2"><i className="fa-solid fa-user text-blue-500"></i> 수강생명</label>
+                                        <input type="text" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="성함을 입력하세요" className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl" />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-bold text-gray-700 flex items-center gap-2"><i className="fa-solid fa-phone text-blue-500"></i> 연락처</label>
+                                        <input type="tel" required value={formData.phone} onChange={e => setFormData({...formData, phone: formatPhone(e.target.value)})} placeholder="010-0000-0000" className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-mono" />
+                                        {formData.phone.length >= 12 && (
+                                            <p className={`text-[10px] font-bold px-3 py-1.5 rounded-lg mt-1 inline-block ${isExisting ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-600'}`}>{isExisting ? '✓ 기존 수강생 확인됨' : '신규 수강생'}</p>
+                                        )}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-bold text-gray-700 flex items-center gap-2"><i className="fa-solid fa-calendar text-blue-500"></i> 생년월일</label>
+                                        <input type="text" required value={formData.birth} onChange={e => setFormData({...formData, birth: formatBirth(e.target.value)})} placeholder="1990-01-01" className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-mono" />
+                                    </div>
+                                    {userAgeType && (
+                                        <div className="space-y-6 animate-in fade-in duration-300">
+                                            <div className="space-y-2">
+                                                <label className="text-sm font-bold text-gray-700 flex items-center gap-2"><i className="fa-solid fa-book-open text-blue-500"></i> 수강 과목</label>
+                                                <select required value={formData.course} onChange={e => setFormData({...formData, course: e.target.value})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold appearance-none">
+                                                    <option value="">과목을 선택해주세요</option>
+                                                    {availableCourses.map(c => {
+                                                        const cnt = applications.filter(a => a.courseId === c.id && a.applyMonth === settings.targetMonth && a.status !== 'cancelled').length;
+                                                        const isFull = cnt >= c.capacity;
+                                                        return <option key={c.id} value={c.id}>{c.name} {isFull ? '(정원초과 - 대기접수)' : `(${cnt}/${c.capacity}명)`}</option>
+                                                    })}
+                                                </select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-sm font-bold text-gray-700 flex items-center gap-2"><i className="fa-solid fa-gift text-blue-500"></i> 감면 혜택</label>
+                                                <select value={formData.discount} onChange={e => setFormData({...formData, discount: e.target.value})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold appearance-none text-gray-700">
+                                                    {discounts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                                </select>
+                                            </div>
+                                            {currentSelectedCourse && (
+                                                <div className="bg-gray-50 rounded-2xl p-6 border border-gray-200 shadow-inner">
+                                                    <div className="flex justify-between items-center"><span className="font-bold text-gray-900">최종 수강료</span><span className="text-2xl font-black text-blue-600">{calculatedPrice.toLocaleString()}원</span></div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    <div className="bg-blue-50 p-4 rounded-2xl flex items-start gap-3">
+                                        <input type="checkbox" id="agree" checked={formData.privacyAgree} onChange={e => setFormData({...formData, privacyAgree: e.target.checked})} className="mt-1 accent-blue-600" />
+                                        <label htmlFor="agree" className="text-xs text-gray-600 font-bold leading-relaxed cursor-pointer">[필수] 개인정보 수집 및 수강 원칙 동의</label>
+                                    </div>
+                                    <button type="submit" disabled={loading || !userAgeType} className="w-full py-5 bg-blue-600 text-white font-bold text-xl rounded-3xl shadow-xl active:scale-95 disabled:opacity-50 transition-all">신청 완료</button>
+                                </form>
+                            </div>
+                        )}
+
+                        {view === 'admin_auth' && (
+                            <div className="max-w-xs mx-auto mt-20 text-center animate-in zoom-in">
+                                <h2 className="text-xl title-black mb-8 italic uppercase text-gray-800 tracking-widest">Administrator</h2>
+                                <form onSubmit={(e) => { e.preventDefault(); if (adminPass === '874054') { setView('admin'); setAdminPass(''); } else { setModal({title:'오류', message:'비밀번호가 틀렸습니다.'}); } }} className="space-y-6">
+                                    <input type="password" placeholder="••••••" value={adminPass} onChange={e => setAdminPass(e.target.value)} className="w-full p-6 bg-white border border-gray-100 rounded-[2rem] text-center text-4xl tracking-widest font-black shadow-inner" />
+                                    <button type="submit" className="w-full py-5 bg-gray-900 text-white font-bold rounded-3xl shadow-xl active:scale-95 transition-all">시스템 접속</button>
+                                </form>
+                            </div>
+                        )}
+
+                        {view === 'admin' && (
+                            <div className="space-y-6 animate-in fade-in">
+                                <div className="bg-white rounded-3xl p-2 flex gap-1 border shadow-sm font-bold text-xs md:text-sm">
+                                    {['apps', 'settings', 'students'].map(tab => (
+                                        <button key={tab} onClick={() => setAdminTab(tab)} className={`flex-1 py-3 rounded-2xl transition-all ${adminTab === tab ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}>{tab === 'apps' ? '접수현황' : tab === 'settings' ? '시스템설정' : '명단관리'}</button>
+                                    ))}
+                                </div>
+                                {adminTab === 'apps' && (
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="bg-white p-5 rounded-3xl border shadow-sm text-center">
+                                                <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">유효 신청건수</p>
+                                                <p className="text-2xl font-black text-gray-800">{stats.total}건</p>
+                                            </div>
+                                            <div className="bg-white p-5 rounded-3xl border shadow-sm text-center">
+                                                <p className="text-[10px] text-blue-400 font-bold uppercase mb-1">확정 수입 총액</p>
+                                                <p className="text-2xl font-black text-blue-600">{stats.revenue.toLocaleString()}원</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white p-6 rounded-3xl border shadow-sm space-y-4 text-xs font-bold">
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <p className="mb-1 text-gray-400">조회 대상월</p>
+                                                    <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl" />
+                                                </div>
+                                                <div>
+                                                    <p className="mb-1 text-gray-400">검색어 (이름/번호)</p>
+                                                    <input type="text" placeholder="검색" value={filterName} onChange={e => setFilterName(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl" />
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-4">
+                                                <label className="flex items-center gap-2 cursor-pointer text-gray-600">
+                                                    <input type="checkbox" checked={filterDiscountOnly} onChange={e => setFilterDiscountOnly(e.target.checked)} className="w-4 h-4 accent-blue-600" /> 감면 대상자
+                                                </label>
+                                                <select value={adminStatusFilter} onChange={e => setAdminStatusFilter(e.target.value)} className="ml-auto border rounded-lg p-2 bg-gray-50">
+                                                    <option value="all">전체 상태</option>
+                                                    <option value="waiting">입금대기</option>
+                                                    <option value="paid">입금완료</option>
+                                                    <option value="waiting_list">대기자</option>
+                                                    <option value="cancelled">신청취소</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-4 font-bold">
+                                            {filteredApplications.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).map(app => (
+                                                <div key={app.id} className={`bg-white border p-6 rounded-3xl relative shadow-sm transition-all ${app.status === 'cancelled' ? 'opacity-40 grayscale' : ''}`}>
+                                                    <div className={`absolute top-0 right-0 px-4 py-1.5 text-[9px] font-black rounded-bl-2xl ${
+                                                        app.status === 'waiting_list' ? 'bg-orange-500 text-white' : 
+                                                        app.status === 'paid' ? 'bg-green-500 text-white' : 
+                                                        app.status === 'cancelled' ? 'bg-gray-400 text-white' : 'bg-blue-500 text-white'
+                                                    }`}>{app.status === 'waiting_list' ? '대기자' : app.status === 'paid' ? '입금완료' : app.status === 'cancelled' ? '취소됨' : '입금대기'}</div>
+                                                    <h3 className="font-bold text-lg">{app.name} <span className="text-xs text-gray-400 font-normal">({app.birth})</span></h3>
+                                                    <p className="text-sm text-blue-600 mt-0.5">{app.courseName}</p>
+                                                    <div className="mt-4 text-[11px] bg-gray-50 p-4 rounded-2xl space-y-1">
+                                                        <p className="flex justify-between">연락처 <span>{app.phone}</span></p>
+                                                        <p className="flex justify-between">수강료 <span>{app.price.toLocaleString()}원</span></p>
+                                                        <p className="flex justify-between text-blue-500">감면혜택 <span>{app.discountName}</span></p>
+                                                        {app.paymentDate && <p className="flex justify-between text-green-600">납부일자 <span>{app.paymentDate}</span></p>}
+                                                    </div>
+                                                    
+                                                    <div className="mt-4 flex flex-col gap-2">
+                                                        {app.status === 'waiting' && (
+                                                            <div className="flex gap-2">
+                                                                <input type="date" className="flex-1 p-2 border rounded-xl text-xs font-bold" defaultValue={new Date().toISOString().substring(0, 10)} onChange={(e) => setAdminPaymentDates({...adminPaymentDates, [app.id]: e.target.value})} />
+                                                                <button onClick={() => changeStatus(app.id, 'paid', { paymentDate: adminPaymentDates[app.id] || new Date().toISOString().substring(0, 10) })} className="flex-1 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold transition-all hover:bg-blue-700">입금완료 처리</button>
+                                                            </div>
+                                                        )}
+                                                        {app.status === 'paid' && (
+                                                            <button onClick={() => changeStatus(app.id, 'waiting', { paymentDate: null })} className="w-full py-2 bg-gray-100 text-gray-500 rounded-xl text-xs font-bold">입금 취소 처리</button>
+                                                        )}
+                                                        {app.status !== 'cancelled' && <button onClick={() => {if(confirm('취소하시겠습니까?')) changeStatus(app.id, 'cancelled')}} className="w-full py-2 border border-red-100 text-red-400 rounded-xl text-xs font-bold transition-all hover:bg-red-50">신청 취소</button>}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                {adminTab === 'settings' && (
+                                    <div className="bg-white rounded-3xl p-8 border shadow-sm space-y-8 font-bold text-gray-700">
+                                        <div className="p-6 bg-amber-50 rounded-2xl border border-amber-100 space-y-4">
+                                            <h4 className="flex items-center gap-2 text-amber-700 font-black"><i className="fa-solid fa-bullhorn"></i> 현재 모집 대상월 설정</h4>
+                                            <input type="month" value={settings.targetMonth} onChange={e => setSettings({...settings, targetMonth: e.target.value})} className="w-full p-3 rounded-xl border font-black text-center" />
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <div className="p-6 bg-green-50 rounded-2xl border border-green-100 space-y-4">
+                                                <h4 className="flex items-center gap-2 text-green-700"><i className="fa-solid fa-user-check"></i> 기존 수강생 기간</h4>
+                                                <input type="datetime-local" value={settings.existingStart} onChange={e => setSettings({...settings, existingStart: e.target.value})} className="w-full p-3 rounded-xl border" />
+                                                <input type="datetime-local" value={settings.existingEnd} onChange={e => setSettings({...settings, existingEnd: e.target.value})} className="w-full p-3 rounded-xl border" />
+                                            </div>
+                                            <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100 space-y-4">
+                                                <h4 className="flex items-center gap-2 text-blue-700"><i className="fa-solid fa-user-plus"></i> 신규 수강생 기간</h4>
+                                                <input type="datetime-local" value={settings.newStart} onChange={e => setSettings({...settings, newStart: e.target.value})} className="w-full p-3 rounded-xl border" />
+                                                <input type="datetime-local" value={settings.newEnd} onChange={e => setSettings({...settings, newEnd: e.target.value})} className="w-full p-3 rounded-xl border" />
+                                            </div>
+                                        </div>
+                                        <button onClick={saveSettings} className="w-full py-5 bg-blue-600 text-white rounded-3xl shadow-xl hover:bg-blue-700 transition-all font-black uppercase italic">Apply Settings</button>
+                                    </div>
+                                )}
+                                {adminTab === 'students' && (
+                                    <div className="space-y-6">
+                                        <div className="bg-white rounded-3xl p-8 border shadow-sm space-y-4">
+                                            <h3 className="text-lg font-black text-blue-600 flex items-center gap-2 italic"><i className="fa-solid fa-user-plus"></i> 개별 수강생 등록</h3>
+                                            <div className="grid grid-cols-2 gap-3 font-bold">
+                                                <input type="text" placeholder="성함" value={individualStudent.name} onChange={e => setIndividualStudent({...individualStudent, name: e.target.value})} className="p-4 bg-gray-50 border rounded-2xl text-sm" />
+                                                <input type="tel" placeholder="연락처" value={individualStudent.phone} onChange={e => setIndividualStudent({...individualStudent, phone: formatPhone(e.target.value)})} className="p-4 bg-gray-50 border rounded-2xl text-sm font-mono" />
+                                            </div>
+                                            <button onClick={handleIndividualAdd} disabled={loading} className="w-full py-3 bg-blue-600 text-white font-black rounded-2xl transition-all hover:bg-blue-700">단일 명단 등록</button>
+                                        </div>
+
+                                        <div className="bg-white rounded-3xl p-8 border shadow-sm space-y-4">
+                                            <h3 className="text-lg font-black text-gray-800 flex items-center gap-2 italic"><i className="fa-solid fa-file-excel"></i> 엑셀 일괄 등록 (중복 제외)</h3>
+                                            <textarea value={bulkInput} onChange={e => setBulkInput(e.target.value)} placeholder="홍길동 010-1111-2222&#10;임꺽정 010-3333-4444" className="w-full h-32 p-4 bg-gray-50 border rounded-2xl text-xs font-mono custom-scroll font-bold" />
+                                            <button onClick={handleBulkUpload} disabled={loading} className="w-full py-3 bg-gray-900 text-white font-black rounded-2xl transition-all hover:bg-black">대량 데이터 동기화</button>
+                                        </div>
+
+                                        <div className="bg-white rounded-3xl p-6 border shadow-sm">
+                                            <h4 className="font-black text-gray-700 mb-4 flex justify-between items-center px-2"><span>현재 명단</span> <span className="text-blue-600 text-sm italic">{existingStudents.length} Students</span></h4>
+                                            <div className="max-h-80 overflow-y-auto custom-scroll space-y-1">
+                                                {existingStudents.sort((a,b) => a.name.localeCompare(b.name)).map(s => (
+                                                    <div key={s.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-transparent hover:border-blue-100 transition-all group">
+                                                        <span className="text-sm font-bold text-gray-700">{s.name} <span className="font-normal text-gray-400 font-mono ml-3 text-[11px]">{s.phone}</span></span>
+                                                        <button onClick={async () => { if(confirm(`${s.name}님을 삭제하시겠습니까?`)) { await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'artifacts', window.FB.appId, 'public', 'data', 'existingStudents', s.id)); }}} className="text-red-200 hover:text-red-500 transition-all"><i className="fa-solid fa-trash-can text-xs"></i></button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {submittedData && view === 'success' && (
+                         <div className="max-w-xl mx-auto p-4 md:p-6 w-full">
+                            <div className="bg-white rounded-[3rem] p-10 md:p-14 text-center border shadow-2xl animate-in zoom-in relative overflow-hidden">
+                                <div className={`absolute top-0 left-0 w-full h-3 ${submittedData.status === 'waiting_list' ? 'bg-orange-500' : 'bg-blue-600'}`}></div>
+                                <h2 className="text-3xl font-black text-gray-800 tracking-tight">수강 신청 완료</h2>
+                                <p className="text-blue-600 font-bold mt-2 uppercase tracking-widest text-sm">{submittedData.applyMonth.split('-')[0]}년 {parseInt(submittedData.applyMonth.split('-')[1])}월 강좌 접수</p>
+                                
+                                <div className="mt-10 p-8 bg-gray-50 rounded-[2.5rem] text-left space-y-4 font-bold border border-gray-100 shadow-inner">
+                                    <p className="flex justify-between text-xs text-gray-400">신청강좌 <span className="text-gray-900 font-black">{submittedData.courseName}</span></p>
+                                    <p className="flex justify-between text-xs text-gray-400 border-t pt-4">최종 금액 <span className="text-xl text-blue-600 font-black">{submittedData.price.toLocaleString()}원</span></p>
+                                </div>
+
+                                {submittedData.status === 'waiting' && (
+                                    <div className="mt-8 space-y-6">
+                                        <div className="p-8 bg-blue-600 rounded-[2.5rem] text-white text-left font-bold shadow-xl">
+                                            <p className="text-[10px] opacity-70 uppercase font-black italic mb-3">Payment Account</p>
+                                            <p className="text-lg font-mono">우리은행 1005-204-639684<br/>예금주: 강남일원독서실</p>
+                                        </div>
+                                        <div className="p-8 bg-amber-50 rounded-[2.5rem] text-left border border-amber-100">
+                                            <p className="text-sm text-gray-700 leading-relaxed font-bold">
+                                                입금자명을 <span className="text-amber-600 text-lg font-black">'{submittedData.name}+{submittedData.courseAlias}'</span>로 반드시 변경하여 입금해 주세요.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                                <button onClick={() => setView('form')} className="w-full mt-12 py-5 bg-gray-100 text-gray-500 font-bold rounded-3xl transition-all active:scale-95">처음으로 돌아가기</button>
+                            </div>
+                         </div>
+                    )}
+
+                    {view === 'search' && (
+                         <div className="max-w-sm mx-auto bg-white rounded-3xl p-10 border shadow-2xl animate-in fade-in">
+                            <h2 className="text-2xl font-black mb-10 text-center text-gray-800 italic uppercase tracking-tighter">My Application</h2>
+                            <form onSubmit={(e) => { e.preventDefault(); setView('search_result'); }} className="space-y-4 font-bold">
+                                <input type="text" placeholder="성함" required value={searchInfo.name} onChange={e => setSearchInfo({...searchInfo, name: e.target.value})} className="w-full p-4 bg-gray-50 border rounded-2xl" />
+                                <input type="tel" placeholder="연락처" required value={searchInfo.phone} onChange={e => setSearchInfo({...searchInfo, phone: formatPhone(e.target.value)})} className="w-full p-4 bg-gray-50 border rounded-2xl font-mono" />
+                                <input type="text" placeholder="생년월일 (1990-01-01)" required value={searchInfo.birth} onChange={e => setSearchInfo({...searchInfo, birth: formatBirth(e.target.value)})} className="w-full p-4 bg-gray-50 border rounded-2xl font-mono" />
+                                <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-3xl shadow-lg mt-4 transition-all">내역 조회하기</button>
+                            </form>
+                         </div>
+                    )}
+
+                    {view === 'search_result' && (
+                        <div className="space-y-6 animate-in fade-in">
+                            <h2 className="text-2xl font-black text-gray-800 px-1 italic uppercase">Search Results</h2>
+                            {searchResults.length === 0 ? (
+                                <div className="bg-white p-20 rounded-3xl text-center border text-gray-300 font-black">신청 내역을 찾을 수 없습니다.</div>
+                            ) : (
+                                searchResults.map(app => (
+                                    <div key={app.id} className="bg-white rounded-3xl shadow-md p-8 border relative overflow-hidden transition-all group border-transparent hover:border-blue-100">
+                                        <div className={`absolute top-0 right-0 px-4 py-1.5 text-[9px] font-black rounded-bl-2xl ${
+                                            app.status === 'paid' ? 'bg-green-500 text-white' : 
+                                            app.status === 'waiting_list' ? 'bg-orange-500 text-white' : 
+                                            app.status === 'cancelled' ? 'bg-gray-400 text-white' : 'bg-blue-500 text-white'
+                                        }`}>
+                                            {app.status === 'paid' ? '입금완료' : app.status === 'waiting_list' ? '대기자' : app.status === 'cancelled' ? '신청취소' : '입금대기'}
+                                        </div>
+                                        <h3 className="text-xl font-black text-gray-900 mb-6">{app.courseName} <span className="text-xs text-gray-400 font-normal italic">({app.applyMonth})</span></h3>
+                                        <div className="space-y-4 text-xs font-bold border-t pt-4 border-gray-100">
+                                            <p className="flex justify-between text-gray-400">결제 예정 금액 <span className="text-gray-900 font-mono text-sm">{app.price.toLocaleString()}원</span></p>
+                                            
+                                            {app.status === 'paid' && app.paymentDate && (
+                                                <div className="flex justify-between items-center bg-green-50 p-3 rounded-lg mt-2 font-bold animate-in slide-in-from-top-1">
+                                                    <span className="text-green-700 font-black"><i className="fa-solid fa-circle-check mr-1 text-[10px]"></i> 납부 확인 완료</span>
+                                                    <span className="text-green-800 font-mono italic">Confirmed: {app.paymentDate}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                            <button onClick={() => setView('form')} className="w-full py-4 text-gray-400 font-black text-xs hover:text-blue-500">메인 화면으로</button>
+                        </div>
+                    )}
+
+                    {modal && (
+                        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-6 font-bold">
+                            <div className="bg-white w-full max-w-xs rounded-[2.5rem] p-10 text-center animate-in zoom-in shadow-2xl">
+                                <h3 className="text-lg font-black mb-4">{modal.title}</h3>
+                                <p className="text-sm text-gray-500 mb-10 leading-relaxed whitespace-pre-line">{modal.message}</p>
+                                <button onClick={() => setModal(null)} className="w-full py-5 bg-gray-900 text-white font-black rounded-3xl shadow-xl active:scale-95 transition-all">닫기</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
