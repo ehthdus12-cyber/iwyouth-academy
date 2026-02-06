@@ -128,6 +128,13 @@
             const formatPhone = (v) => v.replace(/[^0-9]/g, "").replace(/^(\d{2,3})(\d{3,4})(\d{4})$/, `$1-$2-$3`);
             const formatBirth = (v) => v.replace(/[^0-9]/g, "").replace(/^(\d{4})(\d{2})(\d{2})$/, `$1-$2-$3`);
             
+            // 날짜 표시 포맷터
+            const formatDisplayDate = (dateStr) => {
+                if (!dateStr) return '미정';
+                const d = new Date(dateStr);
+                return `${d.getMonth() + 1}월 ${d.getDate()}일 ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+            };
+
             const getAgeType = (birth) => {
                 if (!birth || birth.length < 4) return null;
                 const year = parseInt(birth.substring(0, 4));
@@ -143,16 +150,14 @@
 
             const isExisting = useMemo(() => existingStudents.some(s => s.phone === formData.phone), [existingStudents, formData.phone]);
 
-            // [복구] 기간 체크 로직 및 테스트 모드 예외 처리
+            // 기간 체크 로직
             const checkPeriodStatus = () => {
                 const now = new Date();
                 const { existingStart, existingEnd, newStart, newEnd } = settings;
 
-                // 모든 일정이 비어있으면 테스트 허용
                 if (!existingStart && !existingEnd && !newStart && !newEnd) return { canApply: true };
 
                 if (isExisting) {
-                    // 기존 수강생: 기존 기간 또는 신규 기간 중 하나라도 해당되면 가능
                     const exS = existingStart ? new Date(existingStart) : null;
                     const exE = existingEnd ? new Date(existingEnd) : null;
                     const nS = newStart ? new Date(newStart) : null;
@@ -162,14 +167,13 @@
                     const inNewPeriod = nS && nE && now >= nS && now <= nE;
 
                     if (inExistingPeriod || inNewPeriod) return { canApply: true };
-                    return { canApply: false, msg: `기존 수강생 접수 기간이 아닙니다.\n일정: ${exS ? exS.toLocaleString() : '미정'} ~ ${exE ? exE.toLocaleString() : '미정'}` };
+                    return { canApply: false, msg: `기존 수강생 접수 기간이 아닙니다.\n일정: ${formatDisplayDate(existingStart)} ~ ${formatDisplayDate(existingEnd)}` };
                 } else {
-                    // 신규 수강생: 오직 신규 기간만 가능
                     const nS = newStart ? new Date(newStart) : null;
                     const nE = newEnd ? new Date(newEnd) : null;
 
                     if (nS && nE && now >= nS && now <= nE) return { canApply: true };
-                    return { canApply: false, msg: `신규 수강생 접수 기간이 아닙니다.\n일정: ${nS ? nS.toLocaleString() : '미정'} ~ ${nE ? nE.toLocaleString() : '미정'}` };
+                    return { canApply: false, msg: `신규 수강생 접수 기간이 아닙니다.\n일정: ${formatDisplayDate(newStart)} ~ ${formatDisplayDate(newEnd)}` };
                 }
             };
 
@@ -193,7 +197,7 @@
                 };
             }, [applications, filterMonth]);
 
-            // 강좌 및 할인 정보
+            // 강좌 정보
             const courses = useMemo(() => [
                 { id: 'a1', name: 'AI스마트폰활용 (성인)', alias: '스마트폰', capacity: 15, price: 40000, type: 'adult' },
                 { id: 'a2', name: '연필풍경스케치 (성인)', alias: '연필풍경', capacity: 15, price: 40000, type: 'adult' },
@@ -234,12 +238,8 @@
                 if (!user || loading) return;
                 if (!formData.privacyAgree) { alert('개인정보 동의가 필요합니다.'); return; }
                 
-                // [복구] 신청 전 기간 체크
                 const period = checkPeriodStatus();
-                if (!period.canApply) {
-                    alert(period.msg);
-                    return;
-                }
+                if (!period.canApply) { alert(period.msg); return; }
 
                 setLoading(true);
                 try {
@@ -351,15 +351,28 @@
                                     <p className="mt-1 opacity-90 text-sm">아카데미 수강신청 시스템</p>
                                 </div>
                                 <form onSubmit={handleApply} className="p-6 md:p-8 space-y-6">
-                                    <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
-                                            <i className="fa-solid fa-calendar-check"></i>
+                                    {/* 접수 일정 안내 섹션 */}
+                                    <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100 space-y-3">
+                                        <h4 className="text-xs font-black text-blue-600 uppercase flex items-center gap-2"><i className="fa-solid fa-clock"></i> 수강신청 접수 일정</h4>
+                                        <div className="grid grid-cols-1 gap-2">
+                                            <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-blue-50 shadow-sm">
+                                                <span className="text-xs font-bold text-gray-500">기존 수강생</span>
+                                                <span className="text-xs font-black text-gray-800">
+                                                    {settings.existingStart ? `${formatDisplayDate(settings.existingStart)} ~ ${formatDisplayDate(settings.existingEnd)}` : '테스트 모드 (상시접수)'}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-blue-50 shadow-sm">
+                                                <span className="text-xs font-bold text-gray-500">신규 수강생</span>
+                                                <span className="text-xs font-black text-gray-800">
+                                                    {settings.newStart ? `${formatDisplayDate(settings.newStart)} ~ ${formatDisplayDate(settings.newEnd)}` : '테스트 모드 (상시접수)'}
+                                                </span>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <p className="text-[12px] text-amber-800 font-bold">현재 {parseInt(settings.targetMonth.split('-')[1])}월 강좌 모집 중</p>
-                                            <p className="text-[10px] text-amber-600 font-bold italic">모집 기간 내 신청자만 선발됩니다.</p>
-                                        </div>
+                                        {(!settings.existingStart && !settings.newStart) && (
+                                            <p className="text-[10px] text-blue-400 font-bold text-center italic">* 현재 일정이 설정되지 않아 테스트 접수가 가능합니다.</p>
+                                        )}
                                     </div>
+
                                     <div className="space-y-2">
                                         <label className="text-sm font-bold text-gray-700 flex items-center gap-2"><i className="fa-solid fa-user text-blue-500"></i> 수강생명</label>
                                         <input type="text" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="성함을 입력하세요" className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold" />
@@ -531,7 +544,7 @@
                                                 <input type="month" value={settings.targetMonth} onChange={e => setSettings({...settings, targetMonth: e.target.value})} className="w-full p-4 rounded-xl border font-black text-blue-600" />
                                             </div>
                                             
-                                            {/* [복구] 기존 수강생 기간 설정 */}
+                                            {/* 기존 수강생 기간 설정 */}
                                             <div className="bg-green-50/30 p-6 rounded-2xl border border-green-100 space-y-4">
                                                 <label className="text-[11px] text-green-600 block font-black italic">기존 수강생 우선 접수 기간</label>
                                                 <input type="datetime-local" value={settings.existingStart} onChange={e => setSettings({...settings, existingStart: e.target.value})} className="w-full p-4 rounded-xl border text-sm" />
@@ -539,7 +552,7 @@
                                                 <input type="datetime-local" value={settings.existingEnd} onChange={e => setSettings({...settings, existingEnd: e.target.value})} className="w-full p-4 rounded-xl border text-sm" />
                                             </div>
 
-                                            {/* [복구] 신규 수강생 기간 설정 */}
+                                            {/* 신규 수강생 기간 설정 */}
                                             <div className="bg-blue-50/30 p-6 rounded-2xl border border-blue-100 space-y-4">
                                                 <label className="text-[11px] text-blue-400 block font-black italic">신규 수강생 일반 접수 기간</label>
                                                 <input type="datetime-local" value={settings.newStart} onChange={e => setSettings({...settings, newStart: e.target.value})} className="w-full p-4 rounded-xl border text-sm" />
