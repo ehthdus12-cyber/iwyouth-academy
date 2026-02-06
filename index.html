@@ -136,7 +136,29 @@
 
             const formatPhone = (v) => v.replace(/[^0-9]/g, "").replace(/^(\d{2,3})(\d{3,4})(\d{4})$/, `$1-$2-$3`);
             const formatBirth = (v) => v.replace(/[^0-9]/g, "").replace(/^(\d{4})(\d{2})(\d{2})$/, `$1-$2-$3`);
+            
+            // 데이터 연산 로직 (기존 명단 확인)
             const isExisting = useMemo(() => existingStudents.some(s => s.phone === formData.phone), [existingStudents, formData.phone]);
+
+            // [추가] 필터링된 신청 내역 계산
+            const filteredApplications = useMemo(() => {
+                return applications.filter(app => {
+                    const matchMonth = filterMonth ? app.applyMonth === filterMonth : true;
+                    const matchName = filterName ? (app.name.includes(filterName) || app.phone.includes(filterName)) : true;
+                    const matchStatus = adminStatusFilter === 'all' ? true : app.status === adminStatusFilter;
+                    return matchMonth && matchName && matchStatus;
+                });
+            }, [applications, filterMonth, filterName, adminStatusFilter]);
+
+            // [추가] 통계 데이터 계산 (stats 정의 누락 해결)
+            const stats = useMemo(() => {
+                const targets = applications.filter(a => a.applyMonth === filterMonth && a.status !== 'cancelled');
+                return {
+                    total: targets.length,
+                    paid: targets.filter(a => a.status === 'paid').length,
+                    revenue: targets.filter(a => a.status === 'paid').reduce((sum, item) => sum + item.price, 0)
+                };
+            }, [applications, filterMonth]);
 
             const courses = useMemo(() => [
                 { id: 'a1', name: 'AI스마트폰활용 (성인)', alias: '스마트폰', capacity: 15, price: 40000, type: 'adult' },
@@ -270,6 +292,15 @@
                 } catch(e) { console.error(e); } finally { setLoading(false); }
             };
 
+            const searchResults = useMemo(() => {
+                if (view !== 'search_result') return [];
+                return applications.filter(app => 
+                    app.name === searchInfo.name && 
+                    app.phone === searchInfo.phone && 
+                    app.birth === searchInfo.birth
+                );
+            }, [applications, searchInfo, view]);
+
             if (!isReady) return <div className="p-20 text-center font-bold text-blue-600 animate-pulse">시스템 초기화 중입니다...</div>;
 
             return (
@@ -277,8 +308,8 @@
                     <nav className="bg-white border-b px-6 py-4 flex justify-between items-center sticky top-0 z-40 shadow-sm">
                         <h1 className="text-xl title-black text-blue-600 cursor-pointer" onClick={() => setView('form')}>강남일원독서실</h1>
                         <div className="flex gap-2">
-                            <button onClick={() => setView('search')} className="text-xs font-bold text-gray-500 bg-gray-50 px-3 py-2 rounded-xl border transition-all hover:bg-gray-100 font-bold">신청조회</button>
-                            <button onClick={() => setView('admin_auth')} className="text-xs font-bold bg-blue-600 text-white px-3 py-2 rounded-xl transition-all hover:bg-blue-700 font-bold">관리자</button>
+                            <button onClick={() => setView('search')} className="text-xs font-bold text-gray-500 bg-gray-50 px-3 py-2 rounded-xl border transition-all hover:bg-gray-100">신청조회</button>
+                            <button onClick={() => setView('admin_auth')} className="text-xs font-bold bg-blue-600 text-white px-3 py-2 rounded-xl transition-all hover:bg-blue-700">관리자</button>
                         </div>
                     </nav>
 
@@ -376,6 +407,19 @@
                                                 <p className="text-[10px] text-blue-400 font-bold mb-1 uppercase">Total Revenue</p>
                                                 <p className="text-2xl font-black text-blue-600">{stats.revenue.toLocaleString()}원</p>
                                             </div>
+                                        </div>
+                                        <div className="bg-white p-4 rounded-3xl border shadow-sm space-y-4 text-xs font-bold">
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl" />
+                                                <input type="text" placeholder="이름/번호 검색" value={filterName} onChange={e => setFilterName(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl" />
+                                            </div>
+                                            <select value={adminStatusFilter} onChange={e => setAdminStatusFilter(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl">
+                                                <option value="all">모든 상태</option>
+                                                <option value="waiting">입금대기</option>
+                                                <option value="paid">입금완료</option>
+                                                <option value="waiting_list">대기자</option>
+                                                <option value="cancelled">취소됨</option>
+                                            </select>
                                         </div>
                                         <div className="space-y-4 font-bold">
                                             {filteredApplications.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).map(app => (
