@@ -39,11 +39,11 @@
     <!-- 통합 실행 스크립트 -->
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, getDocs, writeBatch, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // 1. Firebase 환경 설정
-        const firebaseConfig = {
+        // 1. Firebase 환경 설정 및 전역 변수 초기화
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
             apiKey: "AIzaSyCAUkD9JzyeH1Ivyo9KTqZ2eGhGwalNgvA",
             authDomain: "iwyouth.firebaseapp.com",
             projectId: "iwyouth",
@@ -55,7 +55,7 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = "gangnam-irwon-2026";
+        const appId = typeof __app_id !== 'undefined' ? __app_id : "gangnam-irwon-2026"; 
 
         const { useState, useEffect, useMemo } = React;
 
@@ -65,7 +65,6 @@
             const [loading, setLoading] = useState(false);
             const [isReady, setIsReady] = useState(false);
             
-            // 데이터 상태
             const [applications, setApplications] = useState([]);
             const [existingStudents, setExistingStudents] = useState([]);
             const [settings, setSettings] = useState({
@@ -74,7 +73,6 @@
                 newStart: '', newEnd: ''
             });
 
-            // 관리자 및 조회 상태 필터
             const [filterMonth, setFilterMonth] = useState('2026-03');
             const [filterName, setFilterName] = useState('');
             const [adminStatusFilter, setAdminStatusFilter] = useState('all');
@@ -82,44 +80,70 @@
 
             const [adminPass, setAdminPass] = useState('');
             const [adminTab, setAdminTab] = useState('apps');
-            const [bulkInput, setBulkInput] = useState('');
-            const [individualStudent, setIndividualStudent] = useState({ name: '', phone: '' });
             const [formData, setFormData] = useState({ name: '', phone: '', birth: '', discount: 'none', course: '', privacyAgree: false });
             const [searchInfo, setSearchInfo] = useState({ name: '', phone: '', birth: '' });
             const [submittedData, setSubmittedData] = useState(null);
             
-            // 입금 확인 모달용 상태
             const [paymentEditId, setPaymentEditId] = useState(null);
             const [paymentInfo, setPaymentInfo] = useState({ date: new Date().toISOString().split('T')[0], amount: '' });
 
-            // 2. 인증 처리
+            // 2. 인증 처리 (커스텀 토큰 우선 순위 및 익명 로그인)
             useEffect(() => {
                 const initAuth = async () => {
                     try {
-                        await signInAnonymously(auth);
-                    } catch (err) { console.error("Auth Failure:", err); }
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (err) {
+                        console.error("Auth Failure:", err);
+                    }
                 };
                 initAuth();
                 const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
                     setUser(currentUser);
-                    setIsReady(true);
+                    // 사용자가 확인된 후에만 준비 완료 상태로 변경
+                    if (currentUser) {
+                        setIsReady(true);
+                    }
                 });
                 return () => unsubscribe();
             }, []);
 
-            // 3. 데이터 리스너
+            // 3. 데이터 리스너 (에러 핸들러 추가하여 권한 오류 대응)
             useEffect(() => {
+                // Rule 3: Auth Before Queries - user가 없으면 쿼리하지 않음
                 if (!isReady || !user) return;
-                const onSnapshotError = (err) => console.error("Firestore Error:", err);
-                const unsubApps = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'applications'), (s) => {
-                    setApplications(s.docs.map(d => ({ id: d.id, ...d.data() })));
-                }, onSnapshotError);
-                const unsubStudents = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'existingStudents'), (s) => {
-                    setExistingStudents(s.docs.map(d => ({ id: d.id, ...d.data() })));
-                }, onSnapshotError);
-                const unsubSettings = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'settings'), (s) => {
-                    if (!s.empty) setSettings(s.docs[0].data());
-                }, onSnapshotError);
+
+                const onSnapshotError = (err) => {
+                    console.error("Firestore Permission/Access Error:", err.message);
+                };
+
+                const unsubApps = onSnapshot(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'applications'), 
+                    (s) => {
+                        setApplications(s.docs.map(d => ({ id: d.id, ...d.data() })));
+                    },
+                    onSnapshotError
+                );
+
+                const unsubStudents = onSnapshot(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'existingStudents'), 
+                    (s) => {
+                        setExistingStudents(s.docs.map(d => ({ id: d.id, ...d.data() })));
+                    },
+                    onSnapshotError
+                );
+
+                const unsubSettings = onSnapshot(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'settings'), 
+                    (s) => {
+                        if (!s.empty) setSettings(s.docs[0].data());
+                    },
+                    onSnapshotError
+                );
+
                 return () => { unsubApps(); unsubStudents(); unsubSettings(); };
             }, [isReady, user]);
 
@@ -127,7 +151,6 @@
             const formatPhone = (v) => v.replace(/[^0-9]/g, "").replace(/^(\d{2,3})(\d{3,4})(\d{4})$/, `$1-$2-$3`);
             const formatBirth = (v) => v.replace(/[^0-9]/g, "").replace(/^(\d{4})(\d{2})(\d{2})$/, `$1-$2-$3`);
             
-            // [업데이트] 날짜 및 시간 표시 포맷터 (초 단위까지 포함)
             const formatDisplayDate = (dateStr) => {
                 if (!dateStr) return '미정';
                 const d = new Date(dateStr);
@@ -159,34 +182,25 @@
 
             const isExisting = useMemo(() => existingStudents.some(s => s.phone === formData.phone), [existingStudents, formData.phone]);
 
-            // 기간 체크 로직
             const checkPeriodStatus = () => {
                 const now = new Date();
                 const { existingStart, existingEnd, newStart, newEnd } = settings;
-
                 if (!existingStart && !existingEnd && !newStart && !newEnd) return { canApply: true };
-
                 if (isExisting) {
                     const exS = existingStart ? new Date(existingStart) : null;
                     const exE = existingEnd ? new Date(existingEnd) : null;
                     const nS = newStart ? new Date(newStart) : null;
                     const nE = newEnd ? new Date(newEnd) : null;
-
-                    const inExistingPeriod = exS && exE && now >= exS && now <= exE;
-                    const inNewPeriod = nS && nE && now >= nS && now <= nE;
-
-                    if (inExistingPeriod || inNewPeriod) return { canApply: true };
-                    return { canApply: false, msg: `기존 수강생 접수 기간이 아닙니다.\n일정: ${formatDisplayDate(existingStart)} ~ ${formatDisplayDate(existingEnd)}` };
+                    if ((exS && exE && now >= exS && now <= exE) || (nS && nE && now >= nS && now <= nE)) return { canApply: true };
+                    return { canApply: false, msg: `접수 기간이 아닙니다.\n일정: ${formatDisplayDate(existingStart)} ~ ${formatDisplayDate(existingEnd)}` };
                 } else {
                     const nS = newStart ? new Date(newStart) : null;
                     const nE = newEnd ? new Date(newEnd) : null;
-
                     if (nS && nE && now >= nS && now <= nE) return { canApply: true };
-                    return { canApply: false, msg: `신규 수강생 접수 기간이 아닙니다.\n일정: ${formatDisplayDate(newStart)} ~ ${formatDisplayDate(newEnd)}` };
+                    return { canApply: false, msg: `접수 기간이 아닙니다.\n일정: ${formatDisplayDate(newStart)} ~ ${formatDisplayDate(newEnd)}` };
                 }
             };
 
-            // 필터링 및 통계
             const filteredApplications = useMemo(() => {
                 return applications.filter(app => {
                     const matchMonth = filterMonth ? app.applyMonth === filterMonth : true;
@@ -206,7 +220,6 @@
                 };
             }, [applications, filterMonth]);
 
-            // 강좌 정보
             const courses = useMemo(() => [
                 { id: 'a1', name: 'AI스마트폰활용 (성인)', alias: '스마트폰', capacity: 15, price: 40000, type: 'adult' },
                 { id: 'a2', name: '연필풍경스케치 (성인)', alias: '연필풍경', capacity: 15, price: 40000, type: 'adult' },
@@ -241,15 +254,12 @@
             const currentSelectedDiscount = discounts.find(d => d.id === formData.discount);
             const calculatedPrice = currentSelectedCourse ? currentSelectedCourse.price * (1 - (currentSelectedDiscount?.rate || 0)) : 0;
 
-            // 로직 핸들러
             const handleApply = async (e) => {
                 e.preventDefault();
                 if (!user || loading) return;
-                if (!formData.privacyAgree) { alert('개인정보 동의가 필요합니다.'); return; }
-                
                 const period = checkPeriodStatus();
                 if (!period.canApply) { alert(period.msg); return; }
-
+                if (!formData.privacyAgree) { alert('개인정보 동의가 필요합니다.'); return; }
                 setLoading(true);
                 try {
                     const activeCount = applications.filter(a => a.courseId === formData.course && a.applyMonth === settings.targetMonth && a.status !== 'cancelled').length;
@@ -273,52 +283,6 @@
                 } catch(e) { console.error(e); }
             };
 
-            const handlePaymentUpdate = async (e) => {
-                e.preventDefault();
-                if (!paymentEditId) return;
-                await changeStatus(paymentEditId, 'paid', { 
-                    paymentDate: paymentInfo.date, 
-                    paidAmount: parseInt(paymentInfo.amount) 
-                });
-                setPaymentEditId(null);
-                alert('입금 확인 처리가 완료되었습니다.');
-            };
-
-            const handleIndividualAdd = async () => {
-                if (!user || loading) return;
-                const formattedPhone = formatPhone(individualStudent.phone.trim());
-                if (existingStudents.some(s => s.phone === formattedPhone)) { alert('이미 등록된 번호입니다.'); return; }
-                setLoading(true);
-                try {
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'existingStudents'), { name: individualStudent.name.trim(), phone: formattedPhone });
-                    setIndividualStudent({ name: '', phone: '' });
-                    alert('등록되었습니다.');
-                } catch (err) { alert(err.message); } finally { setLoading(false); }
-            };
-
-            const handleBulkUpload = async () => {
-                if (!user || loading || !bulkInput.trim()) return;
-                setLoading(true);
-                try {
-                    const batch = writeBatch(db);
-                    let added = 0;
-                    bulkInput.trim().split('\n').forEach(line => {
-                        const parts = line.split(/[\t, ]+/);
-                        if (parts.length >= 2) {
-                            const name = parts[0].trim();
-                            const phone = formatPhone(parts[1].trim());
-                            if (!existingStudents.some(s => s.phone === phone)) {
-                                batch.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'existingStudents')), { name, phone });
-                                added++;
-                            }
-                        }
-                    });
-                    await batch.commit();
-                    setBulkInput('');
-                    alert(`${added}명 등록 완료`);
-                } catch (err) { alert(err.message); } finally { setLoading(false); }
-            };
-
             const saveSettings = async () => {
                 if (!user) return;
                 setLoading(true);
@@ -327,28 +291,24 @@
                     const sSnap = await getDocs(sRef);
                     if (sSnap.empty) await addDoc(sRef, settings);
                     else await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', sSnap.docs[0].id), settings);
-                    alert('시스템 설정이 저장되었습니다.');
+                    alert('저장되었습니다.');
                 } catch(e) { console.error(e); } finally { setLoading(false); }
             };
 
             const searchResults = useMemo(() => {
                 if (view !== 'search_result') return [];
-                return applications.filter(app => 
-                    app.name === searchInfo.name && 
-                    app.phone === searchInfo.phone && 
-                    app.birth === searchInfo.birth
-                );
+                return applications.filter(app => app.name === searchInfo.name && app.phone === searchInfo.phone && app.birth === searchInfo.birth);
             }, [applications, searchInfo, view]);
 
-            if (!isReady) return <div className="p-20 text-center font-bold text-blue-600 animate-pulse">시스템 로딩 중...</div>;
+            if (!isReady) return <div className="p-20 text-center font-bold text-blue-600 animate-pulse">인증 및 시스템 로딩 중...</div>;
 
             return (
                 <div className="max-w-xl mx-auto min-h-screen flex flex-col pb-20 font-medium">
-                    <nav className="bg-white border-b px-6 py-4 flex justify-between items-center sticky top-0 z-40 shadow-sm">
+                    <nav className="bg-white border-b px-6 py-4 flex justify-between items-center sticky top-0 z-40 shadow-sm font-bold">
                         <h1 className="text-xl title-black text-blue-600 cursor-pointer" onClick={() => setView('form')}>강남일원독서실</h1>
                         <div className="flex gap-2">
-                            <button onClick={() => setView('search')} className="text-xs font-bold text-gray-500 bg-gray-50 px-3 py-2 rounded-xl border font-bold">신청조회</button>
-                            <button onClick={() => setView('admin_auth')} className="text-xs font-bold bg-blue-600 text-white px-3 py-2 rounded-xl transition-all hover:bg-blue-700 font-bold">관리자</button>
+                            <button onClick={() => setView('search')} className="text-xs font-bold text-gray-500 bg-gray-50 px-3 py-2 rounded-xl border">신청조회</button>
+                            <button onClick={() => setView('admin_auth')} className="text-xs font-bold bg-blue-600 text-white px-3 py-2 rounded-xl transition-all hover:bg-blue-700">관리자</button>
                         </div>
                     </nav>
 
@@ -360,26 +320,23 @@
                                     <p className="mt-1 opacity-90 text-sm">아카데미 수강신청 시스템</p>
                                 </div>
                                 <form onSubmit={handleApply} className="p-6 md:p-8 space-y-6">
-                                    {/* [업데이트] 접수 일정 안내 섹션 */}
+                                    {/* 접수 일정 안내 */}
                                     <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100 space-y-4">
-                                        <h4 className="text-[11px] font-black text-blue-600 uppercase flex items-center gap-2 tracking-widest"><i className="fa-solid fa-clock"></i> 수강신청 접수 일정 안내</h4>
+                                        <h4 className="text-[11px] font-black text-blue-600 uppercase flex items-center gap-2 tracking-widest font-bold"><i className="fa-solid fa-clock"></i> 수강신청 접수 일정 안내</h4>
                                         <div className="space-y-3 font-bold">
                                             <div className="flex flex-col gap-1.5 p-4 bg-white rounded-2xl border border-blue-50 shadow-sm">
-                                                <span className="text-[10px] text-gray-400">기존 수강생 우선접수</span>
-                                                <span className="text-xs text-gray-800 leading-tight">
-                                                    {settings.existingStart ? `${formatDisplayDate(settings.existingStart)} ~ ${formatDisplayDate(settings.existingEnd)}` : '테스트 모드 (상시접수 가능)'}
+                                                <span className="text-[10px] text-gray-400 font-bold uppercase">기존 수강생 우선접수</span>
+                                                <span className="text-xs text-gray-800 leading-tight font-bold">
+                                                    {settings.existingStart ? `${formatDisplayDate(settings.existingStart)} ~ ${formatDisplayDate(settings.existingEnd)}` : '현재 접수 중 (상시)'}
                                                 </span>
                                             </div>
                                             <div className="flex flex-col gap-1.5 p-4 bg-white rounded-2xl border border-blue-50 shadow-sm">
-                                                <span className="text-[10px] text-gray-400">신규 수강생 일반접수</span>
-                                                <span className="text-xs text-gray-800 leading-tight">
-                                                    {settings.newStart ? `${formatDisplayDate(settings.newStart)} ~ ${formatDisplayDate(settings.newEnd)}` : '테스트 모드 (상시접수 가능)'}
+                                                <span className="text-[10px] text-gray-400 font-bold uppercase">신규 수강생 일반접수</span>
+                                                <span className="text-xs text-gray-800 leading-tight font-bold">
+                                                    {settings.newStart ? `${formatDisplayDate(settings.newStart)} ~ ${formatDisplayDate(settings.newEnd)}` : '현재 접수 중 (상시)'}
                                                 </span>
                                             </div>
                                         </div>
-                                        {(!settings.existingStart && !settings.newStart) && (
-                                            <p className="text-[10px] text-blue-400 font-bold text-center italic tracking-tight">* 현재 접수 일정이 설정되지 않아 테스트 모드로 운영 중입니다.</p>
-                                        )}
                                     </div>
 
                                     <div className="space-y-2">
@@ -411,12 +368,12 @@
                                             </div>
                                             <div className="space-y-2">
                                                 <label className="text-sm font-bold text-gray-700 flex items-center gap-2"><i className="fa-solid fa-gift text-blue-500"></i> 감면 혜택</label>
-                                                <select value={formData.discount} onChange={e => setFormData({...formData, discount: e.target.value})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-700">
+                                                <select value={formData.discount} onChange={e => setFormData({...formData, discount: e.target.value})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold">
                                                     {discounts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                                                 </select>
                                             </div>
                                             {currentSelectedCourse && (
-                                                <div className="bg-blue-50 rounded-2xl p-6 border border-blue-100 shadow-inner">
+                                                <div className="bg-blue-50 rounded-2xl p-6 border border-blue-100 shadow-inner font-bold">
                                                     <div className="flex justify-between items-center"><span className="font-bold text-blue-900">최종 수강료</span><span className="text-2xl font-black text-blue-600">{calculatedPrice.toLocaleString()}원</span></div>
                                                 </div>
                                             )}
@@ -426,26 +383,26 @@
                                         <input type="checkbox" id="agree" checked={formData.privacyAgree} onChange={e => setFormData({...formData, privacyAgree: e.target.checked})} className="mt-1 accent-blue-600" />
                                         <label htmlFor="agree" className="text-xs text-gray-600 font-bold leading-relaxed cursor-pointer font-bold">개인정보 수집 및 수강 원칙에 동의합니다.</label>
                                     </div>
-                                    <button type="submit" disabled={loading || !userAgeType} className="w-full py-5 bg-blue-600 text-white font-bold text-xl rounded-3xl shadow-xl active:scale-95 disabled:opacity-50 transition-all font-bold">신청 완료</button>
+                                    <button type="submit" disabled={loading || !userAgeType} className="w-full py-5 bg-blue-600 text-white font-bold text-xl rounded-3xl shadow-xl active:scale-95 transition-all font-bold">신청 완료</button>
                                 </form>
                             </div>
                         )}
 
                         {view === 'admin_auth' && (
-                            <div className="max-w-xs mx-auto mt-20 text-center animate-in zoom-in">
+                            <div className="max-w-xs mx-auto mt-20 text-center animate-in zoom-in font-bold">
                                 <h2 className="text-xl title-black mb-8 text-gray-800 italic uppercase tracking-widest font-black">Administrator</h2>
                                 <form onSubmit={(e) => { e.preventDefault(); if (adminPass === '874054') { setView('admin'); setAdminPass(''); } else { alert('비밀번호가 틀립니다.'); } }} className="space-y-6">
-                                    <input type="password" placeholder="••••••" value={adminPass} onChange={e => setAdminPass(e.target.value)} className="w-full p-6 bg-white border border-gray-100 rounded-[2rem] text-center text-4xl font-black shadow-inner" />
+                                    <input type="password" placeholder="••••••" value={adminPass} onChange={e => setAdminPass(e.target.value)} className="w-full p-6 bg-white border border-gray-100 rounded-[2rem] text-center text-4xl font-black shadow-inner tracking-[0.3em]" />
                                     <button type="submit" className="w-full py-5 bg-gray-900 text-white font-bold rounded-3xl shadow-xl transition-all font-bold">로그인</button>
                                 </form>
                             </div>
                         )}
 
                         {view === 'admin' && (
-                            <div className="space-y-6 animate-in fade-in">
+                            <div className="space-y-6 animate-in fade-in font-bold">
                                 <div className="bg-white rounded-3xl p-2 flex gap-1 border shadow-sm font-bold text-xs">
                                     {['apps', 'settings', 'students'].map(tab => (
-                                        <button key={tab} onClick={() => setAdminTab(tab)} className={`flex-1 py-3 rounded-2xl transition-all ${adminTab === tab ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}>{tab === 'apps' ? '신청현황' : tab === 'settings' ? '환경설정' : '명단관리'}</button>
+                                        <button key={tab} onClick={() => setAdminTab(tab)} className={`flex-1 py-3 rounded-2xl font-bold transition-all ${adminTab === tab ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}>{tab === 'apps' ? '신청현황' : tab === 'settings' ? '환경설정' : '명단관리'}</button>
                                     ))}
                                 </div>
                                 {adminTab === 'apps' && (
@@ -460,141 +417,72 @@
                                                 <p className="text-2xl font-black text-blue-600">{stats.revenue.toLocaleString()}원</p>
                                             </div>
                                         </div>
-                                        <div className="bg-white p-5 rounded-3xl border shadow-sm space-y-4 text-xs">
+                                        <div className="bg-white p-5 rounded-3xl border shadow-sm space-y-4 text-xs shadow-inner">
                                             <div className="grid grid-cols-2 gap-3">
-                                                <div>
-                                                    <p className="mb-1 text-gray-400">모집월 필터</p>
-                                                    <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl font-bold" />
-                                                </div>
-                                                <div>
-                                                    <p className="mb-1 text-gray-400">검색 (이름/번호)</p>
-                                                    <input type="text" placeholder="검색어 입력" value={filterName} onChange={e => setFilterName(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl font-bold" />
-                                                </div>
-                                            </div>
-                                            <div className="flex gap-4 items-center">
-                                                <select value={adminStatusFilter} onChange={e => setAdminStatusFilter(e.target.value)} className="flex-1 p-3 bg-gray-50 border rounded-xl font-bold">
-                                                    <option value="all">모든 상태</option>
-                                                    <option value="waiting">입금대기</option>
-                                                    <option value="paid">입금완료</option>
-                                                    <option value="waiting_list">대기자</option>
-                                                    <option value="cancelled">취소됨</option>
-                                                </select>
-                                                <label className="flex items-center gap-2 cursor-pointer text-blue-600 font-bold">
-                                                    <input type="checkbox" checked={filterDiscountOnly} onChange={e => setFilterDiscountOnly(e.target.checked)} className="w-4 h-4" /> 감면자만
-                                                </label>
+                                                <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl font-bold" />
+                                                <input type="text" placeholder="이름/번호 검색" value={filterName} onChange={e => setFilterName(e.target.value)} className="w-full p-3 bg-gray-50 border rounded-xl font-bold" />
                                             </div>
                                         </div>
-                                        
-                                        <div className="space-y-4">
+                                        <div className="space-y-4 font-bold">
                                             {filteredApplications.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).map(app => (
                                                 <div key={app.id} className={`bg-white border p-6 rounded-3xl relative shadow-sm transition-all ${app.status === 'cancelled' ? 'opacity-40 grayscale' : ''}`}>
-                                                    <div className={`absolute top-0 right-0 px-4 py-1.5 text-[9px] font-black rounded-bl-2xl ${
-                                                        app.status === 'paid' ? 'bg-green-500 text-white' : 
-                                                        app.status === 'waiting_list' ? 'bg-orange-500 text-white' : 
-                                                        app.status === 'cancelled' ? 'bg-gray-400 text-white' : 'bg-blue-500 text-white'
-                                                    }`}>
-                                                        {app.status === 'paid' ? '입금완료' : app.status === 'waiting_list' ? '대기자' : app.status === 'cancelled' ? '취소됨' : '입금대기'}
-                                                    </div>
+                                                    <div className={`absolute top-0 right-0 px-4 py-1.5 text-[9px] font-black rounded-bl-2xl ${app.status === 'paid' ? 'bg-green-500 text-white' : 'bg-blue-500 text-white'}`}>{app.status === 'paid' ? '완료' : '대기'}</div>
                                                     <h3 className="text-lg font-black">{app.name} <span className="text-xs text-gray-400 font-normal">({app.birth})</span></h3>
-                                                    <p className="text-sm text-blue-600 mb-2">{app.courseName}</p>
-                                                    <div className="text-[11px] bg-gray-50 p-4 rounded-2xl mb-4 space-y-1">
-                                                        <p className="flex justify-between text-gray-400 font-bold uppercase tracking-tight">신청 일시 <span className="text-gray-900 font-mono italic">{formatAdminFullDate(app.createdAt)}</span></p>
+                                                    <p className="text-sm text-blue-600 mb-2 font-bold">{app.courseName}</p>
+                                                    <div className="text-[11px] bg-gray-50 p-4 rounded-2xl mb-4 space-y-1 font-bold">
+                                                        <p className="flex justify-between text-gray-400 font-bold uppercase">신청 일시 <span className="text-gray-900 font-mono italic">{formatAdminFullDate(app.createdAt)}</span></p>
                                                         <p className="flex justify-between">연락처 <span>{app.phone}</span></p>
-                                                        <p className="flex justify-between">결제금액 <span className="text-gray-900">{app.price.toLocaleString()}원</span></p>
-                                                        {app.discountName !== '해당없음' && <p className="flex justify-between text-blue-500">감면 혜택 <span>{app.discountName}</span></p>}
-                                                        {app.paymentDate && <p className="flex justify-between text-green-600">입금 확인 <span>{app.paymentDate}</span></p>}
+                                                        <p className="flex justify-between">결제금액 <span className="text-gray-900 font-black">{app.price.toLocaleString()}원</span></p>
                                                     </div>
                                                     <div className="mt-4 flex flex-wrap gap-2">
                                                         {app.status === 'waiting' && <button onClick={() => { setPaymentEditId(app.id); setPaymentInfo({date: new Date().toISOString().split('T')[0], amount: app.price}); }} className="flex-1 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-sm">입금 확인</button>}
-                                                        {app.status === 'paid' && <button onClick={() => changeStatus(app.id, 'waiting', { paymentDate: null })} className="flex-1 py-2 bg-gray-200 text-gray-600 rounded-xl text-xs font-bold">확인 취소</button>}
-                                                        <button onClick={() => changeStatus(app.id, app.status === 'waiting_list' ? 'waiting' : 'waiting_list')} className={`flex-1 py-2 rounded-xl text-xs font-bold border ${app.status === 'waiting_list' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>
+                                                        <button onClick={() => changeStatus(app.id, app.status === 'waiting_list' ? 'waiting' : 'waiting_list')} className={`flex-1 py-2 rounded-xl text-xs font-bold border ${app.status === 'waiting_list' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
                                                             {app.status === 'waiting_list' ? '대기 해제' : '대기 지정'}
                                                         </button>
-                                                        {app.status !== 'cancelled' && <button onClick={() => {if(confirm('신청을 취소 처리하시겠습니까?')) changeStatus(app.id, 'cancelled')}} className="flex-1 py-2 border border-red-100 text-red-400 rounded-xl text-xs font-bold transition-all hover:bg-red-50">신청 취소</button>}
+                                                        {app.status !== 'cancelled' && <button onClick={() => {if(confirm('취소하시겠습니까?')) changeStatus(app.id, 'cancelled')}} className="flex-1 py-2 border text-red-400 rounded-xl text-xs font-bold transition-all hover:bg-red-50">신청 취소</button>}
                                                     </div>
                                                 </div>
                                             ))}
-                                            {filteredApplications.length === 0 && <div className="p-20 text-center text-gray-300 font-bold bg-white rounded-3xl border border-dashed shadow-inner">조건에 맞는 내역이 없습니다.</div>}
-                                        </div>
-                                    </div>
-                                )}
-                                {adminTab === 'students' && (
-                                    <div className="space-y-6">
-                                        <div className="bg-white rounded-3xl p-8 border shadow-sm space-y-4">
-                                            <h3 className="text-lg font-bold text-blue-600 italic"><i className="fa-solid fa-user-plus mr-2"></i>개별 수강생 등록</h3>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <input type="text" placeholder="성함" value={individualStudent.name} onChange={e => setIndividualStudent({...individualStudent, name: e.target.value})} className="p-4 bg-gray-50 border rounded-2xl text-sm font-bold shadow-inner" />
-                                                <input type="tel" placeholder="번호" value={individualStudent.phone} onChange={e => setIndividualStudent({...individualStudent, phone: formatPhone(e.target.value)})} className="p-4 bg-gray-50 border rounded-2xl text-sm font-bold font-mono shadow-inner" />
-                                            </div>
-                                            <button onClick={handleIndividualAdd} disabled={loading} className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl shadow-lg transition-all active:scale-95 font-bold">신규 명단 등록</button>
-                                        </div>
-                                        <div className="bg-white rounded-3xl p-8 border shadow-sm space-y-4">
-                                            <h3 className="text-lg font-bold text-gray-800 italic"><i className="fa-solid fa-file-excel mr-2"></i>일괄 등록 (엑셀)</h3>
-                                            <textarea value={bulkInput} onChange={e => setBulkInput(e.target.value)} placeholder="성함 010-0000-0000 (줄바꿈으로 구분)" className="w-full h-32 p-4 bg-gray-50 border border-gray-100 rounded-2xl text-xs font-mono font-bold custom-scroll shadow-inner" />
-                                            <button onClick={handleBulkUpload} disabled={loading} className="w-full py-4 bg-gray-900 text-white font-bold rounded-2xl shadow-lg transition-all active:scale-95 font-bold">대량 데이터 동기화</button>
-                                        </div>
-                                        <div className="bg-white rounded-3xl p-6 border shadow-sm">
-                                            <h4 className="font-bold mb-4 px-2 flex justify-between font-bold"><span>전체 명단</span> <span className="text-blue-600 italic font-black">{existingStudents.length}명</span></h4>
-                                            <div className="max-h-80 overflow-y-auto custom-scroll space-y-2 p-1">
-                                                {existingStudents.sort((a,b)=>a.name.localeCompare(b.name)).map(s => (
-                                                    <div key={s.id} className="flex justify-between p-4 bg-gray-50 rounded-2xl text-sm font-bold items-center hover:bg-white border border-transparent hover:border-blue-100 transition-all font-bold">
-                                                        <span>{s.name} <span className="text-gray-400 font-mono text-[11px] ml-2 font-normal">{s.phone}</span></span>
-                                                        <button onClick={async () => { if(confirm(`${s.name}님을 삭제하시겠습니까?`)) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'existingStudents', s.id)); }} className="text-red-300 hover:text-red-500 transition-all"><i className="fa-solid fa-trash-can"></i></button>
-                                                    </div>
-                                                ))}
-                                            </div>
+                                            {filteredApplications.length === 0 && <div className="p-20 text-center text-gray-300 font-bold bg-white rounded-3xl border border-dashed shadow-inner">내역이 없습니다.</div>}
                                         </div>
                                     </div>
                                 )}
                                 {adminTab === 'settings' && (
-                                    <div className="bg-white rounded-3xl p-8 border shadow-sm space-y-4 font-bold animate-in zoom-in">
-                                        <h4 className="text-blue-600 italic uppercase tracking-widest text-sm mb-4">System Management</h4>
-                                        <div className="space-y-6">
-                                            <div className="bg-gray-50 p-6 rounded-2xl border font-bold">
-                                                <label className="text-[11px] text-gray-400 mb-2 block font-black">모집 대상월 (수강신청 기준월)</label>
-                                                <input type="month" value={settings.targetMonth} onChange={e => setSettings({...settings, targetMonth: e.target.value})} className="w-full p-4 rounded-xl border font-black text-blue-600" />
-                                            </div>
-                                            
-                                            {/* 기존 수강생 기간 설정 */}
-                                            <div className="bg-green-50/30 p-6 rounded-2xl border border-green-100 space-y-4">
-                                                <label className="text-[11px] text-green-600 block font-black italic">기존 수강생 우선 접수 기간</label>
-                                                <input type="datetime-local" value={settings.existingStart} onChange={e => setSettings({...settings, existingStart: e.target.value})} className="w-full p-4 rounded-xl border text-sm font-bold" />
-                                                <div className="text-center opacity-30 text-xs font-black">TO</div>
-                                                <input type="datetime-local" value={settings.existingEnd} onChange={e => setSettings({...settings, existingEnd: e.target.value})} className="w-full p-4 rounded-xl border text-sm font-bold" />
-                                            </div>
-
-                                            {/* 신규 수강생 기간 설정 */}
-                                            <div className="bg-blue-50/30 p-6 rounded-2xl border border-blue-100 space-y-4">
-                                                <label className="text-[11px] text-blue-400 block font-black italic">신규 수강생 일반 접수 기간</label>
-                                                <input type="datetime-local" value={settings.newStart} onChange={e => setSettings({...settings, newStart: e.target.value})} className="w-full p-4 rounded-xl border text-sm font-bold" />
-                                                <div className="text-center opacity-30 text-xs font-black">TO</div>
-                                                <input type="datetime-local" value={settings.newEnd} onChange={e => setSettings({...settings, newEnd: e.target.value})} className="w-full p-4 rounded-xl border text-sm font-bold" />
-                                            </div>
-                                            <p className="text-[10px] text-gray-400 text-center font-bold italic tracking-tight">* 모든 일시를 비워두면 상시 접수 가능한 '테스트 모드'로 작동합니다.</p>
+                                    <div className="bg-white rounded-3xl p-8 border shadow-sm space-y-6 animate-in zoom-in font-bold">
+                                        <div className="bg-gray-50 p-6 rounded-2xl border font-bold">
+                                            <label className="text-[11px] text-gray-400 mb-2 block font-black uppercase">수강신청 기준월</label>
+                                            <input type="month" value={settings.targetMonth} onChange={e => setSettings({...settings, targetMonth: e.target.value})} className="w-full p-4 rounded-xl border font-black text-blue-600" />
                                         </div>
-                                        <button onClick={saveSettings} className="w-full py-5 bg-blue-600 text-white rounded-3xl font-bold uppercase italic tracking-widest mt-8 shadow-xl transition-all active:scale-95 font-bold">Save All Config</button>
+                                        <div className="bg-green-50/30 p-6 rounded-2xl border border-green-100 space-y-4">
+                                            <label className="text-[11px] text-green-600 block font-black italic">기존 수강생 접수 기간</label>
+                                            <input type="datetime-local" value={settings.existingStart} onChange={e => setSettings({...settings, existingStart: e.target.value})} className="w-full p-4 rounded-xl border text-sm font-bold" />
+                                            <input type="datetime-local" value={settings.existingEnd} onChange={e => setSettings({...settings, existingEnd: e.target.value})} className="w-full p-4 rounded-xl border text-sm font-bold" />
+                                        </div>
+                                        <div className="bg-blue-50/30 p-6 rounded-2xl border border-blue-100 space-y-4">
+                                            <label className="text-[11px] text-blue-400 block font-black italic">신규 수강생 접수 기간</label>
+                                            <input type="datetime-local" value={settings.newStart} onChange={e => setSettings({...settings, newStart: e.target.value})} className="w-full p-4 rounded-xl border text-sm font-bold" />
+                                            <input type="datetime-local" value={settings.newEnd} onChange={e => setSettings({...settings, newEnd: e.target.value})} className="w-full p-4 rounded-xl border text-sm font-bold" />
+                                        </div>
+                                        <button onClick={saveSettings} className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase italic shadow-xl transition-all active:scale-95 font-bold">Save Config</button>
                                     </div>
                                 )}
                             </div>
                         )}
                     </div>
                     
-                    {/* 신청 성공 화면 */}
+                    {/* 성공 화면 */}
                     {submittedData && view === 'success' && (
-                         <div className="max-w-xl mx-auto p-4 w-full animate-in zoom-in">
+                         <div className="max-w-xl mx-auto p-4 w-full animate-in zoom-in font-bold">
                             <div className="bg-white rounded-[3rem] p-12 text-center border shadow-2xl relative overflow-hidden font-bold">
                                 <div className={`absolute top-0 left-0 w-full h-3 ${submittedData.status === 'waiting_list' ? 'bg-orange-500' : 'bg-blue-600'}`}></div>
-                                <h2 className="text-3xl font-black text-gray-800 tracking-tight">
-                                    {submittedData.status === 'waiting_list' ? '대기 접수 완료' : '신청 완료'}
-                                </h2>
-                                <p className="text-blue-600 font-bold mt-2 uppercase tracking-widest text-sm italic">{submittedData.courseName}</p>
-                                <div className="mt-8 p-8 bg-gray-50 rounded-[2.5rem] text-left border border-gray-100 shadow-inner">
+                                <h2 className="text-3xl font-black text-gray-800 tracking-tight font-bold">{submittedData.status === 'waiting_list' ? '대기 접수 완료' : '신청 완료'}</h2>
+                                <p className="text-blue-600 font-bold mt-2 italic font-bold tracking-widest uppercase">{submittedData.courseName}</p>
+                                <div className="mt-8 p-8 bg-gray-50 rounded-[2.5rem] text-left border border-gray-100 shadow-inner font-bold">
                                     <p className="flex justify-between text-xs text-gray-400 mb-4 uppercase font-bold">Amount Due <span className="text-xl text-blue-600 font-black">{submittedData.price.toLocaleString()}원</span></p>
-                                    <div className="p-8 bg-blue-600 rounded-[2rem] text-white shadow-xl relative overflow-hidden">
-                                        <p className="text-[10px] opacity-70 mb-3 uppercase font-black italic tracking-widest">Account Details</p>
+                                    <div className="p-8 bg-blue-600 rounded-[2rem] text-white shadow-xl font-bold">
                                         <p className="text-base font-mono font-bold leading-relaxed">우리은행 1005-204-639684<br/>예금주: 강남일원독서실</p>
-                                        <div className="mt-4 pt-4 border-t border-blue-400/50">
-                                            <p className="text-[10px] opacity-70 mb-1 uppercase font-black tracking-widest">Depositor Name Guide</p>
+                                        <div className="mt-4 pt-4 border-t border-blue-400/50 font-bold">
+                                            <p className="text-[10px] opacity-70 mb-1 uppercase font-black">입금자명 예시</p>
                                             <p className="text-lg font-black tracking-tighter">{submittedData.name}{getShortCourseName(submittedData.courseName)}</p>
                                         </div>
                                     </div>
@@ -604,28 +492,27 @@
                          </div>
                     )}
 
-                    {/* 조회 입력 화면 */}
+                    {/* 조회 입력/결과 화면 */}
                     {view === 'search' && (
                          <div className="max-w-sm mx-auto bg-white rounded-3xl p-10 border shadow-2xl animate-in fade-in font-bold">
                             <h2 className="text-2xl font-black mb-10 text-center text-gray-800 italic uppercase tracking-tighter">My Application</h2>
-                            <form onSubmit={(e) => { e.preventDefault(); setView('search_result'); }} className="space-y-4">
-                                <input type="text" placeholder="수강생 성함" required value={searchInfo.name} onChange={e => setSearchInfo({...searchInfo, name: e.target.value})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold shadow-inner font-bold" />
-                                <input type="tel" placeholder="연락처" required value={searchInfo.phone} onChange={e => setSearchInfo({...searchInfo, phone: formatPhone(e.target.value)})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-mono font-bold shadow-inner font-bold" />
-                                <input type="text" placeholder="생년월일 (1990-01-01)" required value={searchInfo.birth} onChange={e => setSearchInfo({...searchInfo, birth: formatBirth(e.target.value)})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-mono font-bold shadow-inner font-bold" />
+                            <form onSubmit={(e) => { e.preventDefault(); setView('search_result'); }} className="space-y-4 font-bold">
+                                <input type="text" placeholder="수강생 성함" required value={searchInfo.name} onChange={e => setSearchInfo({...searchInfo, name: e.target.value})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold shadow-inner" />
+                                <input type="tel" placeholder="연락처" required value={searchInfo.phone} onChange={e => setSearchInfo({...searchInfo, phone: formatPhone(e.target.value)})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-mono font-bold shadow-inner" />
+                                <input type="text" placeholder="생년월일 (1990-01-01)" required value={searchInfo.birth} onChange={e => setSearchInfo({...searchInfo, birth: formatBirth(e.target.value)})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-mono font-bold shadow-inner" />
                                 <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-3xl shadow-lg mt-4 transition-all active:scale-95 font-bold">내역 조회하기</button>
                             </form>
                          </div>
                     )}
 
-                    {/* 조회 결과 화면 */}
                     {view === 'search_result' && (
                         <div className="space-y-6 animate-in fade-in font-bold">
                             <h2 className="text-2xl font-black text-gray-800 px-1 italic text-center uppercase tracking-tighter">Search Results</h2>
                             {searchResults.length === 0 ? (
-                                <div className="bg-white p-20 rounded-3xl text-center border text-gray-300 font-black shadow-inner font-bold">신청 내역이 존재하지 않습니다.</div>
+                                <div className="bg-white p-20 rounded-3xl text-center border text-gray-300 font-bold shadow-inner font-bold">조회 내역이 없습니다.</div>
                             ) : (
                                 searchResults.map(app => (
-                                    <div key={app.id} className="bg-white rounded-3xl shadow-md p-8 border relative overflow-hidden transition-all border-transparent hover:border-blue-100">
+                                    <div key={app.id} className="bg-white rounded-3xl shadow-md p-8 border relative overflow-hidden transition-all border-transparent hover:border-blue-100 font-bold">
                                         <div className={`absolute top-0 right-0 px-4 py-1.5 text-[9px] font-black rounded-bl-2xl ${
                                             app.status === 'paid' ? 'bg-green-500 text-white' : 
                                             app.status === 'waiting_list' ? 'bg-orange-500 text-white' : 
@@ -633,24 +520,13 @@
                                         }`}>
                                             {app.status === 'paid' ? '입금완료' : app.status === 'waiting_list' ? '대기자' : app.status === 'cancelled' ? '신청취소' : '입금대기'}
                                         </div>
-                                        <h3 className="text-xl font-black text-gray-900 mb-6">{app.courseName} <span className="text-xs text-gray-400 font-normal italic font-bold">({app.applyMonth})</span></h3>
-                                        <div className="space-y-4 text-xs font-bold border-t pt-4 border-gray-100">
-                                            <p className="flex justify-between text-gray-400">납부 예정 금액 <span className="text-gray-900 font-mono text-sm">{app.price.toLocaleString()}원</span></p>
-                                            {app.status === 'paid' && app.paymentDate && (
-                                                <div className="flex justify-between items-center bg-green-50 p-3 rounded-lg mt-2 font-bold animate-in slide-in-from-top-1 border border-green-100">
-                                                    <span className="text-green-700 font-black"><i className="fa-solid fa-circle-check mr-1"></i> 납부 확인 완료</span>
-                                                    <span className="text-green-800 font-mono italic">{app.paymentDate}</span>
-                                                </div>
-                                            )}
+                                        <h3 className="text-xl font-black text-gray-900 mb-6 font-bold">{app.courseName}</h3>
+                                        <div className="space-y-4 text-xs font-bold border-t pt-4 border-gray-100 font-bold">
+                                            <p className="flex justify-between text-gray-400">납부금액 <span>{app.price.toLocaleString()}원</span></p>
+                                            <p className="flex justify-between text-gray-400 font-bold">신청일 <span>{app.createdAt.split('T')[0]}</span></p>
                                         </div>
-                                        {app.status === 'waiting' && (
-                                            <div className="mt-6 p-6 bg-blue-50 rounded-2xl border border-blue-100 shadow-inner font-bold">
-                                                <p className="text-[10px] text-blue-400 mb-2 font-black italic tracking-widest uppercase">Payment Info</p>
-                                                <p className="text-sm font-black text-blue-900 leading-relaxed font-mono tracking-tighter">우리은행 1005-204-639684<br/>입금자: {app.name}{getShortCourseName(app.courseName)}</p>
-                                            </div>
-                                        )}
                                         {app.status !== 'cancelled' && (
-                                            <button onClick={async () => { if(confirm('신청을 취소하시겠습니까?')) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'applications', app.id), { status: 'cancelled' }); }} className="w-full mt-4 py-3 bg-gray-50 text-gray-400 text-[10px] font-bold rounded-xl border hover:text-red-500 transition-all uppercase italic tracking-widest font-bold">Request Cancellation</button>
+                                            <button onClick={async () => { if(confirm('취소하시겠습니까?')) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'applications', app.id), { status: 'cancelled' }); }} className="w-full mt-4 py-3 bg-gray-50 text-gray-400 text-[10px] font-bold rounded-xl border hover:text-red-500 transition-all font-bold">수강 신청 취소</button>
                                         )}
                                     </div>
                                 ))
@@ -659,21 +535,15 @@
                         </div>
                     )}
 
-                    {/* 공용 모달 (입금 확인 처리 전용) */}
+                    {/* 결제 확인 모달 */}
                     {paymentEditId && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6 font-bold">
-                            <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl border font-bold animate-in zoom-in">
-                                <h3 className="text-xl font-black mb-6 flex items-center gap-2"><i className="fa-solid fa-credit-card text-blue-500"></i>입금 처리 확인</h3>
-                                <form onSubmit={handlePaymentUpdate} className="space-y-4 text-left">
-                                    <div>
-                                        <label className="text-[10px] text-gray-400 mb-1 block">입금 날짜</label>
-                                        <input type="date" required value={paymentInfo.date} onChange={e => setPaymentInfo({...paymentInfo, date: e.target.value})} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none shadow-inner font-bold" />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] text-gray-400 mb-1 block">실제 입금액</label>
-                                        <input type="number" required value={paymentInfo.amount} onChange={e => setPaymentInfo({...paymentInfo, amount: e.target.value})} className="w-full p-4 bg-gray-50 border rounded-2xl font-black text-xl outline-none shadow-inner font-bold" />
-                                    </div>
-                                    <button type="submit" className="w-full py-5 bg-blue-600 text-white font-bold rounded-2xl shadow-lg mt-4 transition-all active:scale-95 font-bold">입금 승인 완료</button>
+                            <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl border font-bold animate-in zoom-in font-bold">
+                                <h3 className="text-xl font-black mb-6 font-bold">입금 확인 처리</h3>
+                                <form onSubmit={(e) => { e.preventDefault(); changeStatus(paymentEditId, 'paid', { paymentDate: paymentInfo.date }); setPaymentEditId(null); alert('승인 완료'); }} className="space-y-4 font-bold">
+                                    <input type="date" required value={paymentInfo.date} onChange={e => setPaymentInfo({...paymentInfo, date: e.target.value})} className="w-full p-4 bg-gray-50 border rounded-2xl outline-none shadow-inner font-bold" />
+                                    <input type="number" required value={paymentInfo.amount} onChange={e => setPaymentInfo({...paymentInfo, amount: e.target.value})} className="w-full p-4 bg-gray-50 border rounded-2xl font-black outline-none shadow-inner font-bold" />
+                                    <button type="submit" className="w-full py-5 bg-blue-600 text-white font-bold rounded-2xl shadow-lg mt-4 font-bold">입금 승인 완료</button>
                                     <button type="button" onClick={() => setPaymentEditId(null)} className="w-full py-2 text-gray-400 text-sm font-bold">닫기</button>
                                 </form>
                             </div>
